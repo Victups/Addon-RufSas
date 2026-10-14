@@ -1,0 +1,19 @@
+{
+  "parallel_workers": 4,
+  "tasks": [
+    {
+      "task_type": "SIMULATION_SINGLE_RUN",
+      "metadata_file_path": "C:/Users/sraus/Documents/ifg/Addon-rufsas/scenarios/smoke/metadata.json",
+      "output_prefix": "smoke",
+      "log_verbosity": "errors",
+      "random_seeds": [
+        42
+      ],
+      "exclude_info_maps": false,
+      "cross_validation_file_paths": [
+        "input/metadata/cross_validation/animal_cross_validation.json",
+        "input/metadata/cross_validation/weather_cross_validation.json"
+      ]
+    }
+  ]
+}
