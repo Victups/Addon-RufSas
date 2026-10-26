@@ -19,6 +19,21 @@ O RuFaS **já formula a dieta de menor custo** das vacas, com um otimizador não
 
 Insumos: **preços reais de mercado (CEPEA)** e exigências **NASEM 2021 / NRC 2001**.
 
+### Requisitos levantados com o professor (anotações da reunião)
+
+| # | Requisito | Situação |
+|---|---|---|
+| R1 | **Modelagem** do problema de dieta | PL com restrições do RuFaS pronta (SLP); falta a PL linear clássica do padrão NRC (R5) |
+| R2 | **Artefato de software integrado ao RuFaS** para otimização | ✅ `LinearRationOptimizer` + runner (sem editar o RuFaS) |
+| R3 | **Análise de sensibilidade**: o usuário altera valores (preço de um alimento, exigência de energia etc.) e vê a nova decisão: quais alimentos aumentaram ou diminuíram, em quanto, o impacto de exigir mais energia, e conclusões geradas | ⏳ não iniciado |
+| R4 | **Desempenho econômico**: comparar o otimizador do add-on com o do RuFaS (melhor ou pior), com **valores reais de alimentos do CEPEA** | ⏳ comparação pareada pronta; faltam preços CEPEA e a análise (seção 8) |
+| R5 | **Nutrientes do padrão NRC**: NEL, PDR, PNDR, FDN, proteína, fibra, minerais e vitaminas | ⏳ o RuFaS hoje restringe energia, proteína metabolizável, FDN, FDN de forragem, EE, Ca e P; **não separa PDR/PNDR e não tem outros minerais nem vitaminas** |
+| R6 | **Interface** e parte **analítica de recomendação**, apoiada no livro de análise de sensibilidade | ⏳ não iniciado |
+| R7 | **Documentação** da implementação do artefato conectado ao RuFaS | ⏳ parcial (este arquivo e docstrings) |
+| R8 | **Solver PuLP** | ⏳ vai no **novo** modelo linear NRC. O SLP atual (`scipy.optimize.linprog`/HiGHS) **continua** e serve de ponte fiel ao RuFaS; os dois coexistem |
+
+**Lacunas entre o RuFaS e o pedido (R5):** a biblioteca de feeds do RuFaS já traz os dados (`RUP`, `dRUP`, `sol_prot`, `N_A/B/C`, `Kd`, `magnesium`, `potassium`, `sodium`, `chlorine`, `sulfur`, `Vit_A`, `Vit_D`, `Vit_E`), mas as **exigências** de PDR, PNDR, minerais adicionais e vitaminas não são calculadas nem usadas como restrição. Elas precisam vir do livro NRC 2001 (e do NASEM 2021, para comparar).
+
 Repositório base: https://github.com/RuminantFarmSystems/RuFaS (Python 3.12/3.13)
 
 ---
@@ -232,7 +247,11 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 5. Testes unitários comparando soluções (baseline × PL) em problemas conhecidos.
 6. Scripts de execução em lote dos cenários.
 7. **Comparação com o modelo do RuFaS** e **análise econômica** (seção 8), em notebook ou dashboard.
-8. Relatório final.
+8. **Análise de sensibilidade** (R3): módulo que perturba preços e exigências, resolve de novo e reporta a nova decisão (alimentos que subiram ou desceram e quanto), custo marginal de cada restrição (preço-sombra), custo reduzido dos alimentos fora da dieta e conclusões em texto.
+9. **Interface** (R6) para alterar valores e ver a nova decisão e as recomendações, apoiada no livro de análise de sensibilidade.
+10. **Modelo linear clássico NRC com PuLP** (R5, R8): NEL, PDR, PNDR, FDN, proteína, minerais e vitaminas.
+11. **Documentação** (R7) da implementação conectada ao RuFaS (arquitetura, como o artefato se liga ao `Pen`, como rodar, limitações).
+12. Relatório final.
 
 ---
 
@@ -253,6 +272,9 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 ## 11. Pontos em aberto (validar com o professor)
 
 - ~~O foco é solver ou modelagem?~~ **Definido:** modelo linear (PL), integrado e comparado com o RuFaS, com análise econômica. Confirmar se a **formulação por animal/diária (M5)** entra no escopo.
+- ~~PuLP: obrigatório?~~ **Decidido:** modelo linear clássico NRC em **PuLP** como artefato principal e base da sensibilidade; o SLP/HiGHS atual fica como ponte fiel ao RuFaS para a comparação econômica.
+- ~~Interface (R6)~~ **Decidido:** web local com **Streamlit**.
+- ~~"Livro de análise de sensibilidade"~~ **Decidido:** o professor não vai indicar o título. Usa-se a teoria padrão de sensibilidade em PL (preço-sombra, custo reduzido, faixas de validade de custo e de lado direito, análise de cenários) e cita-se a fonte usada no relatório.
 - Formulação **por animal** ou por **baia/grupo**?
 - Padrões: anotações citam "NRC 2021" e "MASEM 2021" — o RuFaS implementa **NRC 2001** e **NASEM 2021**.
 - Duração da simulação: "270 + 60 dias" = lactação + período seco?
