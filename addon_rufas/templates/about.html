@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RuFaS Add-on · Sobre o sistema</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Addon-RufSas · documentação integrada</p>
+      <h1>Sobre o sistema</h1>
+      <p>Esta aba reúne a explicação do frontend, dos cálculos NASEM e dos dois
+        otimizadores disponíveis para a formulação da dieta.</p>
+    </div>
+    <div class="badge">RuFaS original<br><strong>somente leitura</strong></div>
+  </header>
+
+  <nav class="tabs" aria-label="Navegação principal">
+    <a class="tab" href="{{ url_for('index') }}">Formulação</a>
+    <a class="tab active" href="{{ url_for('about') }}">Sobre o sistema</a>
+  </nav>
+
+  <section class="panel about-content">
+    <details open>
+      <summary>Como iniciar</summary>
+      <p>Na raiz do repositório, instale as dependências web e execute:</p>
+      <pre><code>pip install -r requirements-web.txt
+PYTHONPATH=.:RufSas/RuFaS python -m addon_rufas.web</code></pre>
+      <p>Depois, abra <code>http://127.0.0.1:5000</code> no navegador.</p>
+    </details>
+
+    <details open>
+      <summary>O que o sistema faz</summary>
+      <p>O frontend carrega os 175 alimentos da biblioteca NASEM. Os alimentos
+        da fazenda fictícia Midwest começam selecionados, mas qualquer alimento
+        pode ser pesquisado, selecionado, desmarcado e editado.</p>
+      <p>O usuário pode alterar os dados da vaca, as exigências nutricionais,
+        os custos e os limites de inclusão dos alimentos. A formulação procura
+        uma ração de menor custo que atenda às restrições informadas.</p>
+    </details>
+
+    <details open>
+      <summary>Fluxo dos dados da vaca</summary>
+      <p>Os dados individuais são enviados à calculadora original do RuFaS:</p>
+      <pre><code>dados da vaca
+  -&gt; NASEMRequirementsCalculator.calculate_requirements
+  -&gt; funções de cada nutriente
+  -&gt; NutritionRequirements
+  -&gt; RationOptimizer ou LinearRationOptimizer
+  -&gt; ração otimizada</code></pre>
+      <p>Depois do cálculo, as exigências continuam editáveis. Portanto, é
+        possível usar os valores NASEM calculados ou testar valores definidos
+        manualmente.</p>
+    </details>
+
+    <details open>
+      <summary>Funções NASEM utilizadas</summary>
+      <p>A função principal está em
+        <code>RUFAS/biophysical/animal/nutrients/nasem_requirements_calculator.py</code>:</p>
+      <pre><code>NASEMRequirementsCalculator.calculate_requirements(...)</code></pre>
+      <p>Ela delega os cálculos para:</p>
+      <table>
+        <thead><tr><th>Resultado</th><th>Função original do RuFaS</th></tr></thead>
+        <tbody>
+          <tr><td>Energia de manutenção</td><td><code>_calculate_maintenance_energy_requirements</code></td></tr>
+          <tr><td>Energia de crescimento</td><td><code>_calculate_growth_energy_requirements</code></td></tr>
+          <tr><td>Energia de gestação</td><td><code>_calculate_pregnancy_energy_requirements</code></td></tr>
+          <tr><td>Energia de lactação</td><td><code>_calculate_lactation_energy_requirements</code></td></tr>
+          <tr><td>Matéria seca/DMI</td><td><code>_calculate_dry_matter_intake</code></td></tr>
+          <tr><td>Proteína metabolizável</td><td><code>_calculate_protein_requirement</code></td></tr>
+          <tr><td>Cálcio</td><td><code>_calculate_calcium_requirement</code></td></tr>
+          <tr><td>Fósforo</td><td><code>_calculate_phosphorus_requirement</code></td></tr>
+          <tr><td>Energia de atividade</td><td><code>_calculate_activity_energy_requirements</code></td></tr>
+          <tr><td>Aminoácidos essenciais</td><td><code>AminoAcidCalculator.calculate_essential_amino_acid_requirements</code></td></tr>
+        </tbody>
+      </table>
+      <p>A chamada usada pelo animal original pode ser consultada em
+        <code>RUFAS/biophysical/animal/animal.py</code>.</p>
+    </details>
+
+    <details open>
+      <summary>Otimizadores</summary>
+      <h3>Programação linear sequencial (SLP)</h3>
+      <p>Usa <code>LinearRationOptimizer</code>, criado no add-on, e
+        <code>scipy.optimize.linprog</code> com HiGHS. As restrições não
+        lineares são linearizadas localmente e o problema linear é resolvido
+        em passos sucessivos.</p>
+      <h3>RuFaS original (SLSQP)</h3>
+      <p>Usa <code>RationOptimizer</code> e
+        <code>scipy.optimize.minimize(method="SLSQP")</code>. Nesse modo, a
+        interface chama a implementação original sem alterá-la.</p>
+      <p>Para uma comparação justa, mantenha iguais os alimentos, preços,
+        limites, exigências e peso corporal. Compare custo, viabilidade,
+        ingredientes, quantidade de matéria seca, iterações e margens.</p>
+    </details>
+
+    <details open>
+      <summary>Preservação do RuFaS</summary>
+      <p>Os arquivos em <code>RufSas/RuFaS</code> são usados como referência e
+        permanecem sem alterações. O frontend está em
+        <code>addon_rufas/web.py</code>, com templates em
+        <code>addon_rufas/templates/</code> e estilos em
+        <code>addon_rufas/static/</code>.</p>
+      <p>A escolha entre os otimizadores acontece somente em tempo de execução.</p>
+    </details>
+
+    <details>
+      <summary>Observações sobre os resultados</summary>
+      <p>O SLP usa um ponto inicial determinístico. O otimizador original pode
+        usar um ponto inicial aleatório quando não existe uma ração anterior;
+        por isso, pequenas diferenças entre execuções do SLSQP são esperadas.</p>
+      <p>Na tabela de resultados, margem maior ou igual a zero indica que a
+        restrição foi atendida.</p>
+    </details>
+  </section>
+</main>
+</body>
+</html>

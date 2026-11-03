@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RuFaS Add-on · Formulação de dieta</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<main>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">Addon-RufSas · NASEM · SLP</p>
+      <h1>Laboratório de formulação</h1>
+      <p>Altere os valores da fazenda fictícia e observe a dieta produzida pelo mesmo
+        <code>LinearRationOptimizer</code> usado na integração.</p>
+    </div>
+    <div class="badge">RuFaS original<br><strong>somente leitura</strong></div>
+  </header>
+  <nav class="tabs" aria-label="Navegação principal">
+    <a class="tab active" href="{{ url_for('index') }}">Formulação</a>
+    <a class="tab" href="{{ url_for('about') }}">Sobre o sistema</a>
+  </nav>
+
+  {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+  <form method="post">
+    <details class="panel" open>
+      <summary>Otimizador</summary>
+      <p class="muted">Escolha qual implementação resolverá a mesma formulação com os mesmos alimentos, preços, limites e exigências.</p>
+      <div class="optimizer-options">
+        <label class="optimizer-option"><input type="radio" name="optimizer" value="linear" {% if optimizer == 'linear' %}checked{% endif %}>
+          <strong>Programação linear sequencial (SLP)</strong><span>Usa <code>LinearRationOptimizer</code> e HiGHS/LP.</span>
+        </label>
+        <label class="optimizer-option"><input type="radio" name="optimizer" value="rufas" {% if optimizer == 'rufas' %}checked{% endif %}>
+          <strong>RuFaS original (SLSQP)</strong><span>Usa <code>RationOptimizer</code> e <code>scipy.optimize.minimize</code>.</span>
+        </label>
+      </div>
+    </details>
+    <details class="panel" open>
+      <summary>Dados da vaca</summary>
+      <p class="muted">Edite os dados individuais e clique em <strong>Calcular exigências NASEM</strong> para preencher a tabela seguinte pelas funções originais do RuFaS.</p>
+      <div class="fields">
+        {% for key, label, unit in [
+          ('cow_body_weight', 'Peso corporal', 'kg'),
+          ('mature_body_weight', 'Peso corporal maduro', 'kg'),
+          ('day_of_pregnancy', 'Dia de gestação', 'dia; 0 = não gestante'),
+          ('body_condition_score', 'Escore de condição corporal', 'escala 1–5'),
+          ('days_in_milk', 'Dias em lactação', 'dia'),
+          ('average_daily_gain', 'Ganho médio diário', 'g/dia'),
+          ('parity', 'Paridade', 'lactação'),
+          ('calving_interval', 'Intervalo entre partos', 'dia'),
+          ('milk_fat', 'Gordura do leite', '%'),
+          ('milk_true_protein', 'Proteína verdadeira do leite', '%'),
+          ('milk_lactose', 'Lactose do leite', '%'),
+          ('milk_production', 'Produção de leite', 'kg/dia'),
+          ('walking_distance', 'Distância percorrida', 'm/dia'),
+          ('ndf_percentage', 'FDN da dieta anterior', '% MS')
+        ] %}
+        <label>{{ label }} <span>{{ unit }}</span>
+          <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
+        </label>
+        {% endfor %}
+      </div>
+      <button type="submit" name="action" value="calculate_requirements" class="secondary-button">Calcular exigências NASEM</button>
+    </details>
+    <details class="panel" open>
+      <summary>Exigências nutricionais usadas nas restrições</summary>
+      <p class="muted">Estes valores são as entradas efetivas do otimizador. Você pode editá-los manualmente ou recalculá-los a partir da tabela da vaca.</p>
+      <div class="fields">
+        {% for key, label, unit in [
+          ('body_weight', 'Peso corporal usado pelo otimizador', 'kg'),
+          ('maintenance_energy', 'Energia de manutenção', 'Mcal/dia'),
+          ('growth_energy', 'Energia de crescimento', 'Mcal/dia'),
+          ('pregnancy_energy', 'Energia de gestação', 'Mcal/dia'),
+          ('lactation_energy', 'Energia de lactação', 'Mcal/dia'),
+          ('metabolizable_protein', 'Proteína metabolizável', 'g/dia'),
+          ('calcium', 'Cálcio', 'g/dia'),
+          ('phosphorus', 'Fósforo', 'g/dia'),
+          ('process_based_phosphorus', 'Fósforo baseado em processo', 'g/dia'),
+          ('dry_matter', 'Matéria seca (DMI)', 'kg/dia'),
+          ('activity_energy', 'Energia de atividade', 'Mcal/dia')
+        ] %}
+        <label>{{ label }} <span>{{ unit }}</span>
+          <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Biblioteca completa de alimentos NASEM</summary>
+      <div class="section-heading">
+        <div>
+          <p class="muted">A biblioteca tem {{ feeds|length }} alimentos. Os {{ selected_ids|length }} da fazenda Midwest começam selecionados; marque outros para incluí-los na formulação.</p>
+        </div>
+        <input id="feed-search" class="search" type="search" placeholder="Pesquisar por ID ou categoria">
+      </div>
+      <div class="table-wrap">
+      <table>
+        <thead><tr><th>Usar</th><th>ID</th><th>Categoria / tipo</th><th>Custo ($/kg)</th><th>Mín. (kg MS)</th><th>Máx. (kg MS)</th></tr></thead>
+        <tbody>{% for feed in feeds %}
+          <tr class="feed-row" data-search="{{ feed.rufas_id }} {{ feed.Fd_Category.value }} {{ feed.feed_type.value }}">
+            <td><input type="checkbox" name="selected_feeds" value="{{ feed.rufas_id }}" {% if feed.rufas_id in selected_ids %}checked{% endif %}></td>
+            <td>{{ feed.rufas_id }}</td>
+            <td>{{ feed.Fd_Category.value }} / {{ feed.feed_type.value }}</td>
+            <td><input required type="number" min="0" step="any" name="cost_{{ feed.rufas_id }}" value="{{ form.get('cost_' ~ feed.rufas_id, '') }}"></td>
+            <td><input required type="number" min="0" step="any" name="min_{{ feed.rufas_id }}" value="{{ form.get('min_' ~ feed.rufas_id, '') }}"></td>
+            <td><input required type="number" min="0" step="any" name="max_{{ feed.rufas_id }}" value="{{ form.get('max_' ~ feed.rufas_id, '') }}"></td>
+          </tr>
+        {% endfor %}</tbody>
+      </table>
+      </div>
+    </details>
+    <button type="submit">Executar formulação LP/SLP</button>
+  </form>
+
+  {% if result %}
+  <details class="panel result" open>
+    <summary>Resultado · {{ result.optimizer_label }}</summary>
+    <div class="result-top">
+      <div><p class="eyebrow">{{ result.optimizer_label }}</p><h2>{{ 'Viável' if result.solution.success else 'Inviável' }}</h2></div>
+      <div class="metric"><span>Custo / vaca / dia</span><strong>{{ '%.4f'|format(result.solution.fun) }}</strong></div>
+      <div class="metric"><span>Iterações SLP</span><strong>{{ result.solution.nit }}</strong></div>
+    </div>
+    <p class="{{ 'ok' if result.solution.success else 'bad' }}">{{ result.solution.message }}</p>
+    {% if result.solution.success %}
+      <h3>Ração encontrada</h3>
+      <table><thead><tr><th>ID</th><th>Alimento</th><th>kg MS/dia</th><th>Custo</th></tr></thead>
+      <tbody>{% for item in result.ration %}<tr><td>{{ item.id }}</td><td>{{ item.name }}</td><td>{{ '%.4f'|format(item.amount) }}</td><td>{{ '%.4f'|format(item.cost) }}</td></tr>{% endfor %}</tbody></table>
+    {% endif %}
+    <h3>Margem das restrições</h3>
+    <p class="muted">Margem >= 0 significa que a restrição foi atendida.</p>
+    <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th></tr></thead>
+      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td></tr>{% endfor %}</tbody>
+    </table>
+  </details>
+  {% endif %}
+</main>
+<script>
+  const search = document.getElementById("feed-search");
+  search.addEventListener("input", () => {
+    const query = search.value.toLowerCase().trim();
+    document.querySelectorAll(".feed-row").forEach((row) => {
+      row.hidden = query !== "" && !row.dataset.search.toLowerCase().includes(query);
+    });
+  });
+</script>
+</body>
+</html>
