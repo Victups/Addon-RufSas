@@ -38,6 +38,14 @@
     </details>
     <details class="panel" open>
       <summary>Dados da vaca</summary>
+      <div class="optimizer-options">
+        {% for key, (label, _, _) in categories.items() %}
+        <label class="optimizer-option"><input type="radio" name="category" value="{{ key }}" {% if form.get('category', 'lactacao') == key %}checked{% endif %}>
+          <strong>{{ label }}</strong>
+        </label>
+        {% endfor %}
+      </div>
+      <p class="muted">Para vaca seca e novilha, a produção de leite é ignorada no cálculo.</p>
       <p class="muted">Edite os dados individuais e clique em <strong>Calcular exigências NASEM</strong> para preencher a tabela seguinte pelas funções originais do RuFaS.</p>
       <div class="fields">
         {% for key, label, unit in [
@@ -46,7 +54,7 @@
           ('day_of_pregnancy', 'Dia de gestação', 'dia; 0 = não gestante'),
           ('body_condition_score', 'Escore de condição corporal', 'escala 1–5'),
           ('days_in_milk', 'Dias em lactação', 'dia'),
-          ('average_daily_gain', 'Ganho médio diário', 'g/dia'),
+          ('average_daily_gain', 'Ganho médio diário (só novilha)', 'kg/dia'),
           ('parity', 'Paridade', 'lactação'),
           ('calving_interval', 'Intervalo entre partos', 'dia'),
           ('milk_fat', 'Gordura do leite', '%'),
@@ -78,7 +86,9 @@
           ('phosphorus', 'Fósforo', 'g/dia'),
           ('process_based_phosphorus', 'Fósforo baseado em processo', 'g/dia'),
           ('dry_matter', 'Matéria seca (DMI)', 'kg/dia'),
-          ('activity_energy', 'Energia de atividade', 'Mcal/dia')
+          ('activity_energy', 'Energia de atividade', 'Mcal/dia'),
+          ('enteric_methane', 'Metano entérico médio do lote', 'g/dia'),
+          ('urine_nitrogen', 'Nitrogênio urinário médio do lote', 'kg/dia')
         ] %}
         <label>{{ label }} <span>{{ unit }}</span>
           <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
@@ -93,7 +103,10 @@
         <div>
           <p class="muted">A biblioteca tem {{ feeds|length }} alimentos. Os {{ selected_ids|length }} da fazenda Midwest começam selecionados; marque outros para incluí-los na formulação.</p>
         </div>
-        <input id="feed-search" class="search" type="search" placeholder="Pesquisar por ID ou categoria">
+        <div>
+          <input id="feed-search" class="search" type="search" placeholder="Pesquisar por ID ou categoria">
+          <button type="button" id="uncheck-all" class="secondary-button">Desmarcar todos</button>
+        </div>
       </div>
       <div class="table-wrap">
       <table>
@@ -111,16 +124,16 @@
       </table>
       </div>
     </details>
-    <button type="submit">Executar formulação LP/SLP</button>
+    <button type="submit">Executar formulação</button>
   </form>
 
   {% if result %}
   <details class="panel result" open>
-    <summary>Resultado · {{ result.optimizer_label }}</summary>
+    <summary>Resultado · {{ result.optimizer_label }} · {{ result.category_label }}</summary>
     <div class="result-top">
       <div><p class="eyebrow">{{ result.optimizer_label }}</p><h2>{{ 'Viável' if result.solution.success else 'Inviável' }}</h2></div>
       <div class="metric"><span>Custo / vaca / dia</span><strong>{{ '%.4f'|format(result.solution.fun) }}</strong></div>
-      <div class="metric"><span>Iterações SLP</span><strong>{{ result.solution.nit }}</strong></div>
+      <div class="metric"><span>Iterações</span><strong>{{ result.solution.nit }}</strong></div>
     </div>
     <p class="{{ 'ok' if result.solution.success else 'bad' }}">{{ result.solution.message }}</p>
     {% if result.solution.success %}
@@ -143,6 +156,9 @@
     document.querySelectorAll(".feed-row").forEach((row) => {
       row.hidden = query !== "" && !row.dataset.search.toLowerCase().includes(query);
     });
+  });
+  document.getElementById("uncheck-all").addEventListener("click", () => {
+    document.querySelectorAll('input[name="selected_feeds"]').forEach((box) => { box.checked = false; });
   });
 </script>
 </body>

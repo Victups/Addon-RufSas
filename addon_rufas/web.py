@@ -6,12 +6,14 @@ does not modify the RuFaS checkout or replace the normal RuFaS runner.
 
 from __future__ import annotations
 
+import copy
+import csv
 import json
 import math
 import os
 import sys
+import threading
 from contextlib import contextmanager
-import csv
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 from typing import Any, Iterator, Mapping
@@ -72,6 +74,41 @@ COW_DEFAULTS: dict[str, float] = {
     "walking_distance": 10.0,
     "ndf_percentage": 35.0,
 }
+
+# Same grouping as RuFaS's animal_grouping_scenarios: category -> (label, pen combination, lactating).
+CATEGORIES: dict[str, tuple[str, AnimalCombination, bool]] = {
+    "lactacao": ("Vaca em lactação", AnimalCombination.LAC_COW, True),
+    "seca": ("Vaca seca", AnimalCombination.CLOSE_UP, False),
+    "novilha": ("Novilha em crescimento", AnimalCombination.GROWING, False),
+}
+
+PEN_DEFAULTS: dict[str, float] = {
+    "enteric_methane": 400.0,
+    "urine_nitrogen": 0.2,
+}
+
+CONSTRAINT_LABELS = {
+    "NE_total_constraint": "Energia líquida total (NRC)",
+    "NE_maintenance_and_activity_constraint": "Energia de manutenção e atividade (NRC)",
+    "NE_lactation_constraint": "Energia de lactação (NRC)",
+    "NE_growth_constraint": "Energia de crescimento (NRC)",
+    "NASEM_net_energy_constraint": "Energia líquida (NASEM)",
+    "calcium_constraint": "Cálcio",
+    "phosphorus_constraint": "Fósforo",
+    "protein_constraint_lower": "Proteína metabolizável (mínimo)",
+    "protein_constraint_upper": "Proteína metabolizável (máximo)",
+    "NDF_constraint_lower": "FDN (mínimo)",
+    "NDF_constraint_upper": "FDN (máximo)",
+    "forage_NDF_constraint": "FDN de forragem (mínimo)",
+    "fat_constraint": "Gordura (máximo)",
+    "DMI_constraint_upper": "Matéria seca (máximo)",
+    "DMI_constraint_lower": "Matéria seca (mínimo)",
+}
+
+# The optimizers patch scipy's ``minimize`` and the page changes the process
+# cwd, both process-wide, so Flask's request threads must take turns.
+# ponytail: one global lock, a process pool if several users run at once.
+_SOLVER_LOCK = threading.Lock()
 
 
 @contextmanager
@@ -152,12 +189,26 @@ def _selected_ids(form: Mapping[str, str]) -> set[int]:
     return {int(value) for raw in raw_values for value in str(raw).split(",") if value}
 
 
+def _category(form: Mapping[str, str]) -> tuple[str, AnimalCombination, bool]:
+    category = form.get("category", "lactacao")
+    if category not in CATEGORIES:
+        raise ValueError("categoria animal desconhecida")
+    return CATEGORIES[category]
+
+
 def _calculate_nasem_requirements(form: Mapping[str, str]) -> NutritionRequirements:
     values = {key: _float(form, key) for key in COW_DEFAULTS}
     if values["day_of_pregnancy"] <= 0:
         day_of_pregnancy = None
     else:
         day_of_pregnancy = int(values["day_of_pregnancy"])
+    _, combination, lactating = _category(form)
+    if combination is AnimalCombination.LAC_COW:
+        animal_type = AnimalType.LAC_COW
+    elif combination is AnimalCombination.CLOSE_UP:
+        animal_type = AnimalType.DRY_COW
+    else:
+        animal_type = AnimalType.HEIFER_II if day_of_pregnancy else AnimalType.HEIFER_I
     return NASEMRequirementsCalculator.calculate_requirements(
         body_weight=values["cow_body_weight"],
         mature_body_weight=values["mature_body_weight"],
@@ -165,26 +216,26 @@ def _calculate_nasem_requirements(form: Mapping[str, str]) -> NutritionRequireme
         body_condition_score_5=values["body_condition_score"],
         days_in_milk=int(values["days_in_milk"]),
         average_daily_gain_heifer=values["average_daily_gain"],
-        animal_type=AnimalType.LAC_COW,
+        animal_type=animal_type,
         parity=int(values["parity"]),
         calving_interval=int(values["calving_interval"]),
         milk_fat=values["milk_fat"],
         milk_true_protein=values["milk_true_protein"],
         milk_lactose=values["milk_lactose"],
-        milk_production=values["milk_production"],
+        milk_production=values["milk_production"] if lactating else 0.0,
         housing="Barn",
         distance=values["walking_distance"],
-        lactating=True,
+        lactating=lactating,
         ndf_percentage=values["ndf_percentage"],
         process_based_phosphorus_requirement=_float(form, "process_based_phosphorus"),
     )
 
 
 def _configured_feeds(form: Mapping[str, str]) -> list[Feed]:
-    selected_ids = _selected_ids(form) or DEFAULT_SELECTED_IDS
+    selected_ids = _selected_ids(form)
     if not selected_ids:
         raise ValueError("selecione pelo menos um alimento")
-    feeds = [feed for feed in load_feeds() if feed.rufas_id in selected_ids]
+    feeds = [copy.deepcopy(feed) for feed in FEEDS if feed.rufas_id in selected_ids]
     for feed in feeds:
         feed.purchase_cost = _float(form, f"cost_{feed.rufas_id}")
         feed.lower_limit = _float(form, f"min_{feed.rufas_id}")
@@ -197,6 +248,8 @@ def _configured_feeds(form: Mapping[str, str]) -> list[Feed]:
 def _default_form() -> dict[str, str]:
     values = {key: str(value) for key, value in DEFAULTS.items()}
     values.update({key: str(value) for key, value in COW_DEFAULTS.items()})
+    values.update({key: str(value) for key, value in PEN_DEFAULTS.items()})
+    values["category"] = "lactacao"
     for feed in FEEDS:
         values[f"cost_{feed.rufas_id}"] = str(feed.purchase_cost)
         values[f"min_{feed.rufas_id}"] = str(feed.lower_limit)
@@ -216,32 +269,38 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     if optimizer_name not in optimizer_types:
         raise ValueError("otimizador desconhecido")
     optimizer_label, optimizer_type = optimizer_types[optimizer_name]
+    category_label, combination, _ = _category(form)
+    enteric_methane = _float(form, "enteric_methane")
+    urine_nitrogen = _float(form, "urine_nitrogen")
+    if enteric_methane < 0 or urine_nitrogen < 0:
+        raise ValueError("metano e nitrogênio urinário não podem ser negativos")
     optimizer = optimizer_type()
-    with _rufas_working_directory():
+    with _SOLVER_LOCK, _rufas_working_directory():
         solution, ration_config = optimizer.attempt_optimization(
             nutrient_standard=NutrientStandard.NASEM,
             pen_average_body_weight=_float(form, "body_weight"),
-            pen_average_enteric_methane=400.0,
-            pen_average_urine_nitrogen=0.2,
+            pen_average_enteric_methane=enteric_methane,
+            pen_average_urine_nitrogen=urine_nitrogen,
             requirements=requirements,
             initial_dry_matter_requirement=requirements.dry_matter,
             initial_protein_requirement=requirements.metabolizable_protein,
             pen_available_feeds=feeds,
-            animal_combination=AnimalCombination.LAC_COW,
+            animal_combination=combination,
         )
 
-    constraints = optimizer._select_constraints(AnimalCombination.LAC_COW)
+    constraints = optimizer._select_constraints(combination)
     constraint_rows = [
         {
-            "name": constraint.get("name", f"Restrição {index + 1}"),
+            "name": CONSTRAINT_LABELS.get(constraint["fun"].__name__, constraint["fun"].__name__),
             "slack": float(constraint["fun"](solution.x, ration_config)),
         }
-        for index, constraint in enumerate(constraints)
+        for constraint in constraints
     ]
     return {
         "solution": solution,
         "optimizer": optimizer_name,
         "optimizer_label": optimizer_label,
+        "category_label": category_label,
         "feeds": feeds,
         "ration": [
             {
@@ -262,7 +321,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
 def index():
     form: Mapping[str, str] = _default_form() if request.method == "GET" else request.form
     if request.method == "POST" and request.form.get("action") == "calculate_requirements":
-        mutable_form = dict(request.form)
+        mutable_form = request.form.copy()  # MultiDict: keeps every checked feed
         try:
             calculated = _calculate_nasem_requirements(request.form)
             for key in DEFAULTS:
@@ -290,7 +349,7 @@ def index():
             except (KeyError, TypeError, ValueError) as exc:
                 error = f"Entrada inválida: {exc}"
     return render_template(
-        "index.html", form=form, feeds=FEEDS, selected_ids=selected_ids, optimizer=optimizer, result=result, error=error
+        "index.html", form=form, feeds=FEEDS, categories=CATEGORIES, selected_ids=selected_ids, optimizer=optimizer, result=result, error=error
     )
 
 

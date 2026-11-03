@@ -1,23 +1,41 @@
 # Addon-RufSas
 # Interface web e escolha do otimizador
 
-Na raiz deste repositório, instale o Flask e inicie a interface:
+Pré-requisitos: Python 3.12 e uma cópia do RuFaS em `RufSas/RuFaS` (a pasta
+não vai para o git; clone o repositório do RuFaS nela). Na raiz deste
+repositório:
 
-```bash
-pip install -r requirements-web.txt
-PYTHONPATH=.:RufSas/RuFaS python -m addon_rufas.web
+```powershell
+# Windows (PowerShell)
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m addon_rufas.web
 ```
 
-Abra `http://127.0.0.1:5000`.
+```bash
+# Linux/macOS
+python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m addon_rufas.web
+```
+
+Abra `http://127.0.0.1:5000`. Testes: `.venv\Scripts\python -m pytest`.
 
 A interface carrega os 175 alimentos da biblioteca NASEM. Os 10 alimentos da
 configuração fictícia Midwest começam selecionados, mas qualquer alimento pode
-ser marcado, desmarcado, pesquisado e editado. O formulário permite alterar:
+ser marcado, desmarcado (há um botão **Desmarcar todos**), pesquisado e
+editado. O formulário permite alterar:
 
+- a categoria animal: **vaca em lactação**, **vaca seca** ou **novilha em
+  crescimento** (muda o cálculo das exigências e o conjunto de restrições);
 - peso corporal médio;
 - exigências de energia, proteína metabolizável, cálcio, fósforo e matéria seca;
+- metano entérico (g/dia) e nitrogênio urinário (kg/dia) médios do lote;
 - custo de compra de cada alimento;
 - limites mínimo e máximo de cada alimento.
+
+A tabela de margens mostra cada restrição pelo nome (energia, cálcio, FDN etc.).
+Pedidos simultâneos são atendidos um de cada vez, porque o otimizador troca
+funções globais do RuFaS durante a formulação.
 
 ## Escolha do otimizador
 
@@ -128,9 +146,14 @@ Animal.calculate_nutrient_requirements(...)
 Na interface deste add-on, são usados os seguintes parâmetros para a
 calculadora:
 
-- `AnimalType.LAC_COW`;
+- `AnimalType` pela categoria: `LAC_COW` (lactação), `DRY_COW` (seca) ou
+  `HEIFER_I`/`HEIFER_II` (novilha não gestante/gestante), e o lote
+  `AnimalCombination` correspondente: `LAC_COW`, `CLOSE_UP` ou `GROWING`,
+  como em `animal_grouping_scenarios.py`;
 - `housing="Barn"`;
-- `lactating=True`;
+- `lactating` verdadeiro só na lactação (nas outras, produção de leite 0);
+- ganho médio diário em **kg/dia** (a docstring do RuFaS diz gramas, mas a
+  equação usa kg/dia);
 - FDN anterior informado pelo usuário;
 - fósforo baseado em processo mantido no campo editável;
 - aminoácidos calculados pelo RuFaS, embora a formulação atual não exponha

@@ -1,0 +1,14 @@
+# RuFaS (RufSas/RuFaS/pyproject.toml); the RuFaS code itself is imported from the folder, not installed
+matplotlib>=3.10.0
+numpy==2.2.0
+pandas>=2.2.3
+scipy>=1.15.1
+typing_extensions>=4.12.2
+salib==1.5.1
+tqdm>=4.67.1
+deepdiff>=9.1.0
+psutil>=6.1.1
+numba>=0.61.0
+# add-on
+Flask>=3.0,<4
+pytest
