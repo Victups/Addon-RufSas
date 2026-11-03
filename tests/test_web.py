@@ -1,3 +1,5 @@
+import io
+import json
 import re
 
 import pytest
@@ -58,3 +60,42 @@ def test_heifer_is_feasible_for_both_optimizers():
     requirements = {key: re.search(rf'name="{key}" value="([^"]+)"', html).group(1) for key in web.DEFAULTS}
     for optimizer in ("linear", "rufas"):
         assert "<h2>Viável</h2>" in post(category="novilha", optimizer=optimizer, **requirements)
+
+
+def field(html, key):
+    return float(re.search(rf'name="{key}" value="([^"]+)"', html).group(1))
+
+
+def test_feed_names_are_shown():
+    html = client.get("/").get_data(as_text=True)
+    feed_id = min(web.DEFAULT_SELECTED_IDS)
+    assert web.FEED_NAMES[feed_id] and f"<td>{web.FEED_NAMES[feed_id]}</td>" in html
+
+
+def test_grazing_raises_activity_energy_and_process_phosphorus_is_calculated():
+    barn = post(action="calculate_requirements", housing="Barn")
+    grazing = post(action="calculate_requirements", housing="Grazing")
+    assert field(grazing, "activity_energy") > field(barn, "activity_energy") + 1
+    assert field(barn, "process_based_phosphorus") > 0
+    assert field(barn, "process_based_phosphorus") != float(web.DEFAULTS["process_based_phosphorus"])
+    assert "alojamento desconhecido" in post(action="calculate_requirements", housing="Tenda")
+
+
+def test_scenario_export_then_import_round_trips():
+    exported = client.post("/", data=web._default_form() | {"action": "export", "cost_44": "0.77", "category": "seca"})
+    assert exported.mimetype == "application/json"
+    scenario = exported.get_json()
+    assert scenario["cost_44"] == "0.77" and scenario["selected_feeds"] == sorted(web.DEFAULT_SELECTED_IDS)
+    scenario["selected_feeds"] = [44]
+    upload = {"action": "import", "scenario": (io.BytesIO(json.dumps(scenario).encode()), "cenario.json")}
+    html = client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True)
+    assert field(html, "cost_44") == 0.77
+    assert re.findall(r'name="selected_feeds" value="(\d+)" checked', html) == ["44"]
+    assert re.search(r'name="category" value="seca" checked', html)
+
+
+@pytest.mark.parametrize("content", [b"not json", b"[1, 2]", b'{"typo_field": 1}'])
+def test_bad_scenario_files_are_rejected(content):
+    upload = {"action": "import", "scenario": (io.BytesIO(content), "x.json")}
+    html = client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True)
+    assert "Não foi possível importar o cenário" in html

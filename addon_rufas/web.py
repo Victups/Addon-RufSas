@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import dataclasses
 import json
 import math
 import os
@@ -18,7 +19,8 @@ from unittest.mock import MagicMock, patch
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
-from flask import Flask, render_template, request
+from flask import Flask, Response, render_template, request
+from werkzeug.datastructures import MultiDict
 
 ROOT = Path(__file__).resolve().parents[1]
 RUFAS_DIR = ROOT / "RufSas" / "RuFaS"
@@ -28,9 +30,11 @@ if str(RUFAS_DIR) not in sys.path:
 from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
 from RUFAS.biophysical.animal.data_types.animal_combination import AnimalCombination
 from RUFAS.biophysical.animal.data_types.animal_types import AnimalType
+from RUFAS.biophysical.animal.data_types.nutrients import NutrientsInputs
 from RUFAS.biophysical.animal.data_types.nutrition_data_structures import NutritionRequirements
 from RUFAS.biophysical.animal.ration.amino_acid import EssentialAminoAcidRequirements
 from RUFAS.biophysical.animal.nutrients.nasem_requirements_calculator import NASEMRequirementsCalculator
+from RUFAS.biophysical.animal.nutrients.nutrients import Nutrients
 from RUFAS.data_structures.feed_storage_to_animal_connection import (
     AvailableFeedsBuilder,
     Feed,
@@ -42,7 +46,6 @@ from RUFAS.biophysical.animal.ration.ration_optimizer import RationOptimizer
 app = Flask(__name__)
 FEED_CONFIG_PATH = RUFAS_DIR / "input" / "data" / "feed" / "example_Midwest_feed.json"
 FEED_LIBRARY_PATH = RUFAS_DIR / "input" / "data" / "feed" / "NASEM_Comp_with_TDN.csv"
-USER_FEEDS_PATH = RUFAS_DIR / "input" / "data" / "feed" / "user_feeds.csv"
 
 DEFAULTS: dict[str, float] = {
     "body_weight": 650.0,
@@ -81,6 +84,9 @@ CATEGORIES: dict[str, tuple[str, AnimalCombination, bool]] = {
     "seca": ("Vaca seca", AnimalCombination.CLOSE_UP, False),
     "novilha": ("Novilha em crescimento", AnimalCombination.GROWING, False),
 }
+
+# The only housing values RuFaS's requirement calculators recognise; they change activity energy only.
+HOUSING = {"Barn": "Confinamento", "Grazing": "Pasto"}
 
 PEN_DEFAULTS: dict[str, float] = {
     "enteric_methane": 400.0,
@@ -163,7 +169,8 @@ def load_feeds() -> list[Feed]:
 
 
 FEEDS = load_feeds()
-_, DEFAULT_SELECTED_IDS, _ = _feed_config()
+_, DEFAULT_SELECTED_IDS, _library = _feed_config()
+FEED_NAMES: dict[int, str] = dict(zip(_library["rufas_id"], map(str, _library["Name"])))
 
 
 def _float(form: Mapping[str, str], key: str) -> float:
@@ -209,7 +216,11 @@ def _calculate_nasem_requirements(form: Mapping[str, str]) -> NutritionRequireme
         animal_type = AnimalType.DRY_COW
     else:
         animal_type = AnimalType.HEIFER_II if day_of_pregnancy else AnimalType.HEIFER_I
-    return NASEMRequirementsCalculator.calculate_requirements(
+    housing = form.get("housing", "Barn")
+    if housing not in HOUSING:
+        raise ValueError("alojamento desconhecido")
+    milk_production = values["milk_production"] if lactating else 0.0
+    requirements = NASEMRequirementsCalculator.calculate_requirements(
         body_weight=values["cow_body_weight"],
         mature_body_weight=values["mature_body_weight"],
         day_of_pregnancy=day_of_pregnancy,
@@ -222,13 +233,29 @@ def _calculate_nasem_requirements(form: Mapping[str, str]) -> NutritionRequireme
         milk_fat=values["milk_fat"],
         milk_true_protein=values["milk_true_protein"],
         milk_lactose=values["milk_lactose"],
-        milk_production=values["milk_production"] if lactating else 0.0,
-        housing="Barn",
+        milk_production=milk_production,
+        housing=housing,
         distance=values["walking_distance"],
         lactating=lactating,
         ndf_percentage=values["ndf_percentage"],
-        process_based_phosphorus_requirement=_float(form, "process_based_phosphorus"),
+        process_based_phosphorus_requirement=0.0,
     )
+    # Process-based P comes from RuFaS's phosphorus module, as in a simulation day. RuFaS never updates
+    # Nutrients.ration_phosphorus_concentration (it stays 0), so neither does this.
+    nutrients = Nutrients()
+    nutrients.set_dry_matter_intake(requirements.dry_matter)
+    nutrients.perform_daily_phosphorus_update(
+        NutrientsInputs(
+            animal_type=animal_type,
+            body_weight=values["cow_body_weight"],
+            mature_body_weight=values["mature_body_weight"],
+            daily_growth=values["average_daily_gain"],
+            days_in_pregnancy=day_of_pregnancy or 0,
+            days_in_milk=int(values["days_in_milk"]) if lactating else 0,
+            daily_milk_produced=milk_production,
+        )
+    )
+    return dataclasses.replace(requirements, process_based_phosphorus=nutrients.phosphorus_requirement)
 
 
 def _configured_feeds(form: Mapping[str, str]) -> list[Feed]:
@@ -249,7 +276,7 @@ def _default_form() -> dict[str, str]:
     values = {key: str(value) for key, value in DEFAULTS.items()}
     values.update({key: str(value) for key, value in COW_DEFAULTS.items()})
     values.update({key: str(value) for key, value in PEN_DEFAULTS.items()})
-    values["category"] = "lactacao"
+    values.update(category="lactacao", housing="Barn", optimizer="linear")
     for feed in FEEDS:
         values[f"cost_{feed.rufas_id}"] = str(feed.purchase_cost)
         values[f"min_{feed.rufas_id}"] = str(feed.lower_limit)
@@ -305,7 +332,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
         "ration": [
             {
                 "id": feed.rufas_id,
-                "name": getattr(feed, "name", f"Feed {feed.rufas_id}"),
+                "name": FEED_NAMES.get(feed.rufas_id, f"Feed {feed.rufas_id}"),
                 "amount": float(amount),
                 "cost": float(amount * feed.purchase_cost),
             }
@@ -317,39 +344,77 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
+def _scenario(form: Mapping[str, str]) -> dict[str, Any]:
+    """The page state as a JSON-ready dict, with the same keys the form uses."""
+    data: dict[str, Any] = {key: form.get(key, value) for key, value in _default_form().items()}
+    data["selected_feeds"] = sorted(_selected_ids(form))
+    return data
+
+
+def _imported_form(upload: Any) -> MultiDict:
+    """Default page state overridden by an uploaded scenario JSON (any subset of the exported keys)."""
+    if upload is None or not upload.filename:
+        raise ValueError("escolha um arquivo JSON")
+    data = json.load(upload.stream)
+    if not isinstance(data, dict):
+        raise ValueError("o JSON deve ser um objeto com os campos da página")
+    defaults = _default_form()
+    unknown = sorted(set(data) - set(defaults))
+    if unknown:
+        raise ValueError(f"campos desconhecidos no JSON: {', '.join(unknown[:5])}")
+    form = MultiDict({key: value for key, value in defaults.items() if key != "selected_feeds"})
+    for key, value in data.items():
+        if key != "selected_feeds":
+            form[key] = str(value)
+    selected = data.get("selected_feeds", sorted(DEFAULT_SELECTED_IDS))
+    if not isinstance(selected, list):
+        raise ValueError("selected_feeds deve ser uma lista de IDs")
+    form.setlist("selected_feeds", [str(int(feed_id)) for feed_id in selected])
+    return form
+
+
+ERROR_PREFIX = {
+    "calculate_requirements": "Não foi possível calcular as exigências NASEM",
+    "import": "Não foi possível importar o cenário",
+}
+
+
 @app.route("/", methods=["GET", "POST"])
 def index():
-    form: Mapping[str, str] = _default_form() if request.method == "GET" else request.form
-    if request.method == "POST" and request.form.get("action") == "calculate_requirements":
-        mutable_form = request.form.copy()  # MultiDict: keeps every checked feed
-        try:
-            calculated = _calculate_nasem_requirements(request.form)
+    form: Mapping[str, str] = _default_form() if request.method == "GET" else request.form.copy()
+    action = request.form.get("action") if request.method == "POST" else None
+    if action == "export":
+        return Response(
+            json.dumps(_scenario(form), ensure_ascii=False, indent=2),
+            mimetype="application/json",
+            headers={"Content-Disposition": "attachment; filename=cenario.json"},
+        )
+    result: dict[str, Any] | None = None
+    error = None
+    try:
+        if action == "import":
+            form = _imported_form(request.files.get("scenario"))
+        elif action == "calculate_requirements":
+            calculated = _calculate_nasem_requirements(form)
             for key in DEFAULTS:
                 if key != "body_weight":
-                    mutable_form[key] = str(getattr(calculated, key))
-            mutable_form["body_weight"] = request.form["cow_body_weight"]
-            form = mutable_form
-        except (KeyError, TypeError, ValueError) as exc:
-            error = f"Não foi possível calcular as exigências NASEM: {exc}"
-        else:
-            error = None
-    else:
-        error = None
-    selected_ids = (
-        DEFAULT_SELECTED_IDS
-        if request.method == "GET"
-        else _selected_ids(form)
-    )
-    optimizer = form.get("optimizer", "linear")
-    result: dict[str, Any] | None = None
-    if request.method == "POST":
-        if request.form.get("action") != "calculate_requirements":
-            try:
-                result = simulate(form)
-            except (KeyError, TypeError, ValueError) as exc:
-                error = f"Entrada inválida: {exc}"
+                    form[key] = str(getattr(calculated, key))
+            form["body_weight"] = form["cow_body_weight"]
+        elif request.method == "POST":
+            result = simulate(form)
+    except (KeyError, TypeError, ValueError) as exc:
+        error = f"{ERROR_PREFIX.get(action, 'Entrada inválida')}: {exc}"
     return render_template(
-        "index.html", form=form, feeds=FEEDS, categories=CATEGORIES, selected_ids=selected_ids, optimizer=optimizer, result=result, error=error
+        "index.html",
+        form=form,
+        feeds=FEEDS,
+        feed_names=FEED_NAMES,
+        categories=CATEGORIES,
+        housing_options=HOUSING,
+        selected_ids=_selected_ids(form),
+        optimizer=form.get("optimizer", "linear"),
+        result=result,
+        error=error,
     )
 
 

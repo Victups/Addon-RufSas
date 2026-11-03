@@ -27,11 +27,51 @@ editado. O formulário permite alterar:
 
 - a categoria animal: **vaca em lactação**, **vaca seca** ou **novilha em
   crescimento** (muda o cálculo das exigências e o conjunto de restrições);
+- o alojamento: **confinamento** (`"Barn"`) ou **pasto** (`"Grazing"`), que muda
+  só a energia de atividade (no pasto inclui o gasto de pastejar);
 - peso corporal médio;
 - exigências de energia, proteína metabolizável, cálcio, fósforo e matéria seca;
 - metano entérico (g/dia) e nitrogênio urinário (kg/dia) médios do lote;
 - custo de compra de cada alimento;
 - limites mínimo e máximo de cada alimento.
+
+Os alimentos aparecem com o nome da biblioteca NASEM (coluna `Name`), e a busca
+procura por nome, ID ou categoria.
+
+### Cenários em JSON
+
+**Exportar** baixa a página inteira em `cenario.json`: categoria, alojamento,
+dados da vaca, exigências, alimentos marcados (`selected_feeds`), preços
+(`cost_<id>`) e limites (`min_<id>`, `max_<id>`). **Importar** carrega um arquivo
+desses. O arquivo pode ter só parte dos campos; o resto fica no padrão. Exemplo:
+
+```json
+{"category": "seca", "housing": "Grazing", "cow_body_weight": 700, "selected_feeds": [44, 104]}
+```
+
+Campos desconhecidos são recusados, para que um erro de digitação não passe em
+silêncio.
+
+### Os dois fósforos
+
+- **Fósforo**: exigência da calculadora NASEM (manutenção, crescimento,
+  gestação e leite).
+- **Fósforo do processo**: exigência do módulo de fósforo do RuFaS
+  (`Nutrients.perform_daily_phosphorus_update`), um balanço de perdas endógenas,
+  urina, crescimento, gestação e leite dividido por uma eficiência de absorção.
+
+A restrição usa o **maior** dos dois (`RationOptimizer.phosphorus_constraint`).
+Os dois são preenchidos por **Calcular exigências NASEM** e podem ser editados.
+
+Duas particularidades do RuFaS, mantidas aqui para os resultados baterem com a
+simulação:
+
+1. `Nutrients.ration_phosphorus_concentration` nunca é atualizado e fica 0, então
+   a eficiência de absorção da vaca em lactação é sempre a constante 1,867.
+2. As calculadoras comparam o alojamento com `"Barn"` e `"Grazing"` exatamente.
+   Os arquivos de fazenda do RuFaS usam `"open air barn"` e `"barn"`, que caem no
+   caso "outro" (energia de atividade 0 no NASEM). Uma fazenda a pasto precisa
+   trazer exatamente `"Grazing"`.
 
 A tabela de margens mostra cada restrição pelo nome (energia, cálcio, FDN etc.).
 Pedidos simultâneos são atendidos um de cada vez, porque o otimizador troca
@@ -150,12 +190,12 @@ calculadora:
   `HEIFER_I`/`HEIFER_II` (novilha não gestante/gestante), e o lote
   `AnimalCombination` correspondente: `LAC_COW`, `CLOSE_UP` ou `GROWING`,
   como em `animal_grouping_scenarios.py`;
-- `housing="Barn"`;
+- `housing` escolhido na página (`"Barn"` ou `"Grazing"`);
 - `lactating` verdadeiro só na lactação (nas outras, produção de leite 0);
 - ganho médio diário em **kg/dia** (a docstring do RuFaS diz gramas, mas a
   equação usa kg/dia);
 - FDN anterior informado pelo usuário;
-- fósforo baseado em processo mantido no campo editável;
+- fósforo do processo calculado pelo módulo de fósforo do RuFaS;
 - aminoácidos calculados pelo RuFaS, embora a formulação atual não exponha
   restrições individuais para cada aminoácido.
 

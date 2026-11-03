@@ -23,7 +23,19 @@
   </nav>
 
   {% if error %}<div class="alert">{{ error }}</div>{% endif %}
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
+    <details class="panel" open>
+      <summary>Cenário (JSON)</summary>
+      <p class="muted">Exporte a página inteira (vaca, exigências, alimentos, preços e limites) para um arquivo, ou importe um.
+        O arquivo importado pode ter só parte dos campos, por exemplo <code>{"category": "seca", "cow_body_weight": 700}</code>; o resto fica no padrão.</p>
+      <div class="section-heading">
+        <input type="file" name="scenario" accept=".json,application/json">
+        <div>
+          <button type="submit" name="action" value="import" class="secondary-button" formnovalidate>Importar</button>
+          <button type="submit" name="action" value="export" class="secondary-button">Exportar</button>
+        </div>
+      </div>
+    </details>
     <details class="panel" open>
       <summary>Otimizador</summary>
       <p class="muted">Escolha qual implementação resolverá a mesma formulação com os mesmos alimentos, preços, limites e exigências.</p>
@@ -46,6 +58,13 @@
         {% endfor %}
       </div>
       <p class="muted">Para vaca seca e novilha, a produção de leite é ignorada no cálculo.</p>
+      <div class="optimizer-options">
+        {% for key, label in housing_options.items() %}
+        <label class="optimizer-option"><input type="radio" name="housing" value="{{ key }}" {% if form.get('housing', 'Barn') == key %}checked{% endif %}>
+          <strong>{{ label }}</strong><span>{{ 'Energia de atividade só pela distância caminhada.' if key == 'Barn' else 'Inclui o gasto de pastejar: energia de atividade bem maior.' }}</span>
+        </label>
+        {% endfor %}
+      </div>
       <p class="muted">Edite os dados individuais e clique em <strong>Calcular exigências NASEM</strong> para preencher a tabela seguinte pelas funções originais do RuFaS.</p>
       <div class="fields">
         {% for key, label, unit in [
@@ -54,7 +73,7 @@
           ('day_of_pregnancy', 'Dia de gestação', 'dia; 0 = não gestante'),
           ('body_condition_score', 'Escore de condição corporal', 'escala 1–5'),
           ('days_in_milk', 'Dias em lactação', 'dia'),
-          ('average_daily_gain', 'Ganho médio diário (só novilha)', 'kg/dia'),
+          ('average_daily_gain', 'Ganho médio diário', 'kg/dia; energia só na novilha'),
           ('parity', 'Paridade', 'lactação'),
           ('calving_interval', 'Intervalo entre partos', 'dia'),
           ('milk_fat', 'Gordura do leite', '%'),
@@ -73,7 +92,8 @@
     </details>
     <details class="panel" open>
       <summary>Exigências nutricionais usadas nas restrições</summary>
-      <p class="muted">Estes valores são as entradas efetivas do otimizador. Você pode editá-los manualmente ou recalculá-los a partir da tabela da vaca.</p>
+      <p class="muted">Estes valores são as entradas efetivas do otimizador. Você pode editá-los manualmente ou recalculá-los a partir da tabela da vaca.
+        O fósforo vem da calculadora NASEM e o fósforo do processo do módulo de fósforo do RuFaS; a restrição usa o <strong>maior</strong> dos dois.</p>
       <div class="fields">
         {% for key, label, unit in [
           ('body_weight', 'Peso corporal usado pelo otimizador', 'kg'),
@@ -104,17 +124,18 @@
           <p class="muted">A biblioteca tem {{ feeds|length }} alimentos. Os {{ selected_ids|length }} da fazenda Midwest começam selecionados; marque outros para incluí-los na formulação.</p>
         </div>
         <div>
-          <input id="feed-search" class="search" type="search" placeholder="Pesquisar por ID ou categoria">
+          <input id="feed-search" class="search" type="search" placeholder="Pesquisar por nome, ID ou categoria">
           <button type="button" id="uncheck-all" class="secondary-button">Desmarcar todos</button>
         </div>
       </div>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Usar</th><th>ID</th><th>Categoria / tipo</th><th>Custo ($/kg)</th><th>Mín. (kg MS)</th><th>Máx. (kg MS)</th></tr></thead>
+        <thead><tr><th>Usar</th><th>ID</th><th>Alimento</th><th>Categoria / tipo</th><th>Custo ($/kg)</th><th>Mín. (kg MS)</th><th>Máx. (kg MS)</th></tr></thead>
         <tbody>{% for feed in feeds %}
-          <tr class="feed-row" data-search="{{ feed.rufas_id }} {{ feed.Fd_Category.value }} {{ feed.feed_type.value }}">
+          <tr class="feed-row" data-search="{{ feed.rufas_id }} {{ feed_names[feed.rufas_id] }} {{ feed.Fd_Category.value }} {{ feed.feed_type.value }}">
             <td><input type="checkbox" name="selected_feeds" value="{{ feed.rufas_id }}" {% if feed.rufas_id in selected_ids %}checked{% endif %}></td>
             <td>{{ feed.rufas_id }}</td>
+            <td>{{ feed_names[feed.rufas_id] }}</td>
             <td>{{ feed.Fd_Category.value }} / {{ feed.feed_type.value }}</td>
             <td><input required type="number" min="0" step="any" name="cost_{{ feed.rufas_id }}" value="{{ form.get('cost_' ~ feed.rufas_id, '') }}"></td>
             <td><input required type="number" min="0" step="any" name="min_{{ feed.rufas_id }}" value="{{ form.get('min_' ~ feed.rufas_id, '') }}"></td>
