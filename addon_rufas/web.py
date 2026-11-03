@@ -581,6 +581,10 @@ def _imported_form(upload: Any) -> MultiDict:
     data = json.load(upload.stream)
     if not isinstance(data, dict):
         raise ValueError("o JSON deve ser um objeto com os campos da página")
+    # Accept both the plain form export and the metadata envelope used by
+    # newer scenario exporters.
+    if isinstance(data.get("data"), dict):
+        data = data["data"]
     defaults = _default_form()
     unknown = sorted(set(data) - set(defaults))
     if unknown:
