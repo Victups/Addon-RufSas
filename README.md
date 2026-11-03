@@ -1,9 +1,33 @@
 # Addon-RufSas
-# Interface web e escolha do otimizador
 
-Pré-requisitos: Python 3.12 e uma cópia do RuFaS em `RufSas/RuFaS` (a pasta
-não vai para o git; clone o repositório do RuFaS nela). Na raiz deste
-repositório:
+Add-on de otimização de dieta para o [RuFaS](https://github.com/RuminantFarmSystems/RuFaS). Ele traz três
+otimizadores para o mesmo problema de formulação:
+
+| Otimizador | O que é |
+|---|---|
+| **SLSQP** | O original do RuFaS (`RationOptimizer`), a linha de base. |
+| **SLP** | `addon_rufas/linear_ration_optimizer.py`: programação linear sequencial com HiGHS sobre as próprias restrições do RuFaS. Substitui o SLSQP dentro da simulação. É determinístico, nunca ficou mais caro e é 2 a 3 vezes mais rápido. |
+| **NRC clássico (PuLP)** | `addon_rufas/nrc_lp.py`: PL linear do NRC 2001 com energia, PDR, PNDR, proteína metabolizável, FDN, minerais e vitaminas, e preços-sombra. |
+
+O RuFaS **não é editado**: o add-on se liga a ele por subclasse e troca do
+otimizador em tempo de execução.
+
+- **Documentação da implementação** (modelo, integração, sensibilidade, análise
+  econômica, CEPEA, testes, limitações): [`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md)
+- Escopo e plano de entregas: [`addon-rufas-otimizacao-dieta.md`](addon-rufas-otimizacao-dieta.md)
+- Notas dos livros NRC 2001 e NASEM 2021: [`docs/notas-livros.md`](docs/notas-livros.md)
+
+## Instalação
+
+Pré-requisitos: Python 3.12 e uma cópia do RuFaS em `RufSas/RuFaS`. Essa pasta
+não vai para o git. Os resultados foram obtidos com o commit `2114532`:
+
+```powershell
+git clone https://github.com/RuminantFarmSystems/RuFaS.git RufSas/RuFaS
+git -C RufSas/RuFaS checkout 2114532
+```
+
+Na raiz deste repositório:
 
 ```powershell
 # Windows (PowerShell)
@@ -19,6 +43,20 @@ python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
 ```
 
 Abra `http://127.0.0.1:5000`. Testes: `.venv\Scripts\python -m pytest`.
+
+## Simulação da fazenda (SLSQP × SLP)
+
+```powershell
+.venv\Scripts\python -m addon_rufas.run --optimizer compare -g -v errors -p scenarios\smoke\task_manager_metadata.json
+.venv\Scripts\python -m addon_rufas.summarize results\compare
+```
+
+`--optimizer slsqp | lp | compare`. No modo `compare`, o SLP conduz a simulação
+e o SLSQP resolve o mesmo problema em sombra a cada formulação, o que dá pares
+comparáveis. Para usar outra fazenda, troque o `-p`. Preços reais: veja a seção 7
+da [documentação](docs/DOCUMENTACAO.md#7-preços-reais-cepea).
+
+## Interface web
 
 A interface carrega os 175 alimentos da biblioteca NASEM. Os 10 alimentos da
 configuração fictícia Midwest começam selecionados, mas qualquer alimento pode
@@ -43,8 +81,8 @@ procura por nome, ID ou categoria.
 
 ### Análise de sensibilidade
 
-Escolha um item (qualquer exigência, o preço do leite ou o preço de um alimento
-marcado) e uma variação em %, e clique em **Analisar sensibilidade**. A página
+Escolha um item (qualquer exigência, o preço do leite, o preço de um alimento
+marcado ou um limite do modelo NRC) e uma variação em %, e clique em **Analisar sensibilidade**. A página
 formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mostra:
 
 - a ração antes e depois, alimento por alimento, com a diferença em kg MS;
@@ -55,8 +93,10 @@ formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mos
   restrição). São essas restrições que definem o custo. Se a ração não muda, o
   item não limita a decisão naquela faixa.
 
-Prefira o SLP para essa análise. O SLSQP do RuFaS parte de um ponto aleatório, e
-parte da diferença entre as duas formulações pode ser ruído.
+Prefira o SLP ou o modelo NRC para essa análise. O SLSQP do RuFaS parte de um
+ponto aleatório, e parte da diferença entre as duas formulações pode ser ruído.
+No modelo NRC, a tabela de margens também mostra o **preço-sombra** de cada
+restrição: quanto o custo sobe se a exigência subir 1 unidade.
 
 ### Cenários em JSON
 
@@ -126,6 +166,24 @@ scipy.optimize.minimize(method="SLSQP")
 Nesse modo, a formulação e as restrições são as originais do RuFaS. A
 interface não reimplementa nem altera esse código; apenas chama a mesma classe
 com os valores informados no formulário.
+
+### Modelo NRC clássico (PuLP)
+
+Seleciona `Modelo NRC clássico (PuLP)` e usa `addon_rufas.nrc_lp.solve` com PuLP
+e o solver HiGHS (`highspy`). As exigências de energia, proteína metabolizável,
+cálcio, fósforo e matéria seca vêm do mesmo painel dos outros otimizadores. O
+painel **Modelo NRC (PuLP)** define o resto:
+
+- FDN mínimo e máximo, FDN de forragem e gordura (padrão: os limites do RuFaS);
+- Mg, K, Na, Cl e S (% MS) e Co, Cu, I, Fe, Mn, Se e Zn (mg/kg MS), com padrões
+  da Tabela 14-7 do NRC 2001;
+- vitaminas A, D e E (UI por kg de peso vivo), com padrões do cap. 7;
+- a tolerância da matéria seca (0 = igual ao DMI).
+
+O valor 0 desliga a restrição. Um nutriente que nenhum alimento marcado tem na
+biblioteca é ignorado, com aviso. Se não houver ração possível, a página diz
+quanto falta de cada nutriente e sugere fontes na biblioteca. Por exemplo, a
+fazenda Midwest não tem premix vitamínico: marque o **VitTM Premix (300)**.
 
 ## Comparação justa
 
