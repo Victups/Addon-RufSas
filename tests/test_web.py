@@ -120,3 +120,11 @@ def test_sensitivity_explains_the_new_decision():
 
 def test_sensitivity_rejects_unknown_item():
     assert "escolha o item a variar" in post(action="sensitivity", sens_param="nada", sens_percent="10")
+
+
+def test_pulp_model_in_the_page_reports_shadow_prices():
+    selected = ",".join(str(i) for i in sorted(web.DEFAULT_SELECTED_IDS | {300}))
+    page = post(optimizer="pulp", selected_feeds=selected)
+    assert "<h2>Viável</h2>" in page and "Preço-sombra" in page
+    infeasible = html.unescape(post(optimizer="pulp"))  # the Midwest farm has no vitamin premix
+    assert "Vitamina A: falta" in infeasible and "VitTM Premix, generic (300)" in infeasible

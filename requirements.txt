@@ -11,4 +11,6 @@ psutil>=6.1.1
 numba>=0.61.0
 # add-on
 Flask>=3.0,<4
+pulp>=4.1,<5
+highspy>=1.15  # HiGHS solver for PuLP 4, which ships without one
 pytest

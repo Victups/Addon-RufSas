@@ -14,6 +14,7 @@ import math
 import os
 import sys
 import threading
+from types import SimpleNamespace
 import warnings
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
@@ -29,6 +30,7 @@ RUFAS_DIR = ROOT / "RufSas" / "RuFaS"
 if str(RUFAS_DIR) not in sys.path:
     sys.path.insert(0, str(RUFAS_DIR))
 
+from addon_rufas import nrc_lp
 from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
 from RUFAS.biophysical.animal.data_types.animal_combination import AnimalCombination
 from RUFAS.biophysical.animal.data_types.animal_types import AnimalType
@@ -132,6 +134,27 @@ REQUIREMENT_FIELDS: list[tuple[str, str, str]] = [
     ("milk_price", "Preço do leite", "por kg, na moeda dos alimentos"),
 ]
 
+# Extra inputs of the classic NRC model (PuLP), defaults in nrc_lp.NRC_DEFAULTS: (form key, label, unit).
+NRC_FIELDS: list[tuple[str, str, str]] = [
+    ("dmi_tolerance", "Tolerância da matéria seca", "% do DMI, 0 = igual ao DMI"),
+    ("ndf_min", "FDN mínimo", "% MS"),
+    ("ndf_max", "FDN máximo", "% MS"),
+    ("forage_ndf_min", "FDN de forragem mínimo", "% MS"),
+    ("fat_max", "Gordura (EE) máxima", "% MS"),
+    *((key, label, "% MS") for key, label in nrc_lp.MACRO_MINERALS.items()),
+    *((key, label, "mg/kg MS") for key, label in nrc_lp.TRACE_MINERALS.items()),
+    *((key, label, "UI por kg de peso vivo") for key, label in nrc_lp.VITAMINS.items()),
+]
+
+# Library column that supplies each NRC row, to suggest feeds when the model is infeasible.
+NRC_SOURCE_COLUMNS = {
+    "Energia líquida de lactação": "TDN",
+    "Cálcio absorvível": "calcium",
+    "Fósforo absorvível": "phosphorus",
+    **{label: column for group in (nrc_lp.MACRO_MINERALS, nrc_lp.TRACE_MINERALS, nrc_lp.VITAMINS)
+       for column, label in group.items()},
+}
+
 # Amounts below this (kg DM) count as "not in the ration".
 NEGLIGIBLE = 1e-3
 # A constraint is "at the limit" when its slack is below this fraction of its scale.
@@ -197,6 +220,10 @@ def load_feeds() -> list[Feed]:
 FEEDS = load_feeds()
 _, DEFAULT_SELECTED_IDS, _library = _feed_config()
 FEED_NAMES: dict[int, str] = dict(zip(_library["rufas_id"], map(str, _library["Name"])))
+LIBRARY_ROWS: dict[int, dict[str, object]] = {
+    feed_id: {column: values[index] for column, values in _library.items()}
+    for index, feed_id in enumerate(_library["rufas_id"])
+}
 
 
 def _float(form: Mapping[str, str], key: str) -> float:
@@ -302,6 +329,7 @@ def _default_form() -> dict[str, str]:
     values = {key: str(value) for key, value in DEFAULTS.items()}
     values.update({key: str(value) for key, value in COW_DEFAULTS.items()})
     values.update({key: str(value) for key, value in PEN_DEFAULTS.items()})
+    values.update({key: str(value) for key, value in nrc_lp.NRC_DEFAULTS.items()})
     values.update(category="lactacao", housing="Barn", optimizer="linear")
     for feed in FEEDS:
         values[f"cost_{feed.rufas_id}"] = str(feed.purchase_cost)
@@ -329,6 +357,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     optimizer_types = {
         "linear": ("Programação linear sequencial (SLP)", LinearRationOptimizer),
         "rufas": ("Otimizador original do RuFaS (SLSQP)", RationOptimizer),
+        "pulp": ("Modelo NRC clássico (PuLP + HiGHS)", None),
     }
     if optimizer_name not in optimizer_types:
         raise ValueError("otimizador desconhecido")
@@ -342,6 +371,9 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     milk_production = _float(form, "milk_production") if _category(form)[2] else 0.0
     if milk_price < 0 or milk_production < 0:
         raise ValueError("preço e produção de leite não podem ser negativos")
+    if optimizer_type is None:
+        return _simulate_nrc(form, feeds, requirements, optimizer_name, optimizer_label, category_label,
+                             milk_production * milk_price)
     optimizer = optimizer_type()
     with _SOLVER_LOCK, _rufas_working_directory():
         solution, ration_config = optimizer.attempt_optimization(
@@ -389,9 +421,78 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
+def _simulate_nrc(
+    form: Mapping[str, str],
+    feeds: list[Feed],
+    requirements: NutritionRequirements,
+    optimizer_name: str,
+    optimizer_label: str,
+    category_label: str,
+    milk_revenue: float,
+) -> dict[str, Any]:
+    """The same scenario solved by the classic NRC linear program (addon_rufas.nrc_lp)."""
+    rows = [
+        {**LIBRARY_ROWS[feed.rufas_id], "cost": feed.purchase_cost, "min": feed.lower_limit, "max": feed.limit}
+        for feed in feeds
+    ]
+    extra = {key: _float(form, key) for key, _, _ in NRC_FIELDS}
+    if extra["ndf_min"] > extra["ndf_max"] or extra["dmi_tolerance"] < 0:
+        raise ValueError("FDN mínimo maior que o máximo, ou tolerância de MS negativa")
+    nrc = nrc_lp.solve(
+        rows,
+        {
+            **extra,
+            "energy": requirements.maintenance_energy
+            + requirements.growth_energy
+            + requirements.pregnancy_energy
+            + requirements.lactation_energy
+            + requirements.activity_energy,
+            "mp": requirements.metabolizable_protein,
+            "calcium": requirements.calcium,
+            "phosphorus": max(requirements.phosphorus, requirements.process_based_phosphorus),
+            "dmi": requirements.dry_matter,
+            "body_weight": _float(form, "body_weight"),
+        },
+    )
+    selected = {feed.rufas_id for feed in feeds}
+    for name in nrc.missing:
+        column = NRC_SOURCE_COLUMNS.get(name)
+        if column:
+            best = sorted(
+                (i for i in LIBRARY_ROWS if i not in selected and isinstance(LIBRARY_ROWS[i][column], float)),
+                key=lambda i: -LIBRARY_ROWS[i][column],
+            )[:2]
+            if best and LIBRARY_ROWS[best[0]][column] > 0:
+                sources = ", ".join(f"{FEED_NAMES[i]} ({i})" for i in best)
+                nrc.warnings.append(f"Fontes na biblioteca para {name}, ainda não marcadas: {sources}.")
+    return {
+        "solution": SimpleNamespace(success=nrc.success, fun=nrc.cost, nit="—", message=nrc.message, x=nrc.x),
+        "optimizer": optimizer_name,
+        "optimizer_label": optimizer_label,
+        "category_label": category_label,
+        "feeds": feeds,
+        "ration": [
+            {
+                "id": feed.rufas_id,
+                "name": FEED_NAMES.get(feed.rufas_id, f"Feed {feed.rufas_id}"),
+                "amount": amount,
+                "cost": amount * feed.purchase_cost,
+            }
+            for feed, amount in zip(feeds, nrc.x)
+            if amount > 1e-7
+        ],
+        "constraints": nrc.constraints,
+        "warnings": nrc.warnings,
+        "supply": nrc.supply,
+        "milk_revenue": milk_revenue,
+        "iofc": milk_revenue - nrc.cost,
+        "requirements": requirements,
+    }
+
+
 def _sensitivity_options(form: Mapping[str, str]) -> dict[str, tuple[str, str]]:
     """What the sensitivity analysis can vary: every requirement field and the price of each selected feed."""
-    options = {key: (label, unit) for key, label, unit in REQUIREMENT_FIELDS}
+    options = {key: (label, unit) for key, label, unit in [*REQUIREMENT_FIELDS, *NRC_FIELDS]}
     for feed_id in sorted(_selected_ids(form)):
         options[f"cost_{feed_id}"] = (f"Preço de {FEED_NAMES.get(feed_id, feed_id)}", "por kg")
     return options
@@ -543,6 +644,7 @@ def index():
         result=result,
         analysis=analysis,
         requirement_fields=REQUIREMENT_FIELDS,
+        nrc_fields=NRC_FIELDS,
         sensitivity_options=_sensitivity_options(form),
         error=error,
     )

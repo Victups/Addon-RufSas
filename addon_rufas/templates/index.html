@@ -46,6 +46,9 @@
         <label class="optimizer-option"><input type="radio" name="optimizer" value="rufas" {% if optimizer == 'rufas' %}checked{% endif %}>
           <strong>RuFaS original (SLSQP)</strong><span>Usa <code>RationOptimizer</code> e <code>scipy.optimize.minimize</code>.</span>
         </label>
+        <label class="optimizer-option"><input type="radio" name="optimizer" value="pulp" {% if optimizer == 'pulp' %}checked{% endif %}>
+          <strong>Modelo NRC clássico (PuLP)</strong><span>PL linear do NRC 2001 com PDR, PNDR, minerais e vitaminas; dá preços-sombra.</span>
+        </label>
       </div>
     </details>
     <details class="panel" open>
@@ -98,6 +101,20 @@
         {% for key, label, unit in requirement_fields %}
         <label>{{ label }} <span>{{ unit }}</span>
           <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
+        </label>
+        {% endfor %}
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Modelo NRC (PuLP): fibra, gordura, minerais e vitaminas</summary>
+      <p class="muted">Usados só pelo modelo NRC clássico. FDN, FDN de forragem e gordura começam iguais aos limites do RuFaS;
+        minerais vêm da Tabela 14-7 do NRC 2001 (vaca de 680 kg, 35 kg de leite) e vitaminas do cap. 7. Coloque 0 para não restringir.
+        Energia, proteína metabolizável, cálcio, fósforo e matéria seca vêm do painel de exigências acima.</p>
+      <div class="fields">
+        {% for key, label, unit in nrc_fields %}
+        <label>{{ label }} <span>{{ unit }}</span>
+          <input required type="number" min="0" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
         </label>
         {% endfor %}
       </div>
@@ -177,15 +194,21 @@
       <div class="metric"><span>Iterações</span><strong>{{ result.solution.nit }}</strong></div>
     </div>
     <p class="{{ 'ok' if result.solution.success else 'bad' }}">{{ result.solution.message }}</p>
+    {% if result.warnings %}<ul>{% for line in result.warnings %}<li class="bad">{{ line }}</li>{% endfor %}</ul>{% endif %}
     {% if result.solution.success %}
       <h3>Ração encontrada</h3>
       <table><thead><tr><th>ID</th><th>Alimento</th><th>kg MS/dia</th><th>Custo</th></tr></thead>
       <tbody>{% for item in result.ration %}<tr><td>{{ item.id }}</td><td>{{ item.name }}</td><td>{{ '%.4f'|format(item.amount) }}</td><td>{{ '%.4f'|format(item.cost) }}</td></tr>{% endfor %}</tbody></table>
     {% endif %}
+    {% if result.supply %}
+      <h3>Oferta de nutrientes</h3>
+      <table><tbody>{% for name, value in result.supply.items() %}<tr><td>{{ name }}</td><td>{{ '%.2f'|format(value) }}</td></tr>{% endfor %}</tbody></table>
+    {% endif %}
     <h3>Margem das restrições</h3>
-    <p class="muted">Margem >= 0 significa que a restrição foi atendida.</p>
-    <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th></tr></thead>
-      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td></tr>{% endfor %}</tbody>
+    <p class="muted">Margem >= 0 significa que a restrição foi atendida.
+      {% if result.supply %}O preço-sombra é quanto o custo sobe se a exigência subir 1 unidade (zero se a restrição tem folga).{% endif %}</p>
+    <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th>{% if result.supply %}<th>Preço-sombra</th>{% endif %}</tr></thead>
+      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td>{% if result.supply %}<td>{{ '%.6g'|format(row.shadow_price) }} / {{ row.unit }}</td>{% endif %}</tr>{% endfor %}</tbody>
     </table>
   </details>
   {% endif %}
