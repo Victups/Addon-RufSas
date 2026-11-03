@@ -1,3 +1,4 @@
+import html
 import io
 import json
 import re
@@ -106,3 +107,16 @@ def test_iofc_is_milk_revenue_minus_diet_cost():
     cost = float(re.search(r"Custo / vaca / dia</span><strong>([-\d.]+)", html).group(1))
     iofc = float(re.search(r"IOFC / vaca / dia</span><strong>([-\d.]+)", html).group(1))
     assert iofc == pytest.approx(30 * 0.5 - cost, abs=1e-3)
+
+
+def test_sensitivity_explains_the_new_decision():
+    html_page = post(action="sensitivity", sens_param="metabolizable_protein", sens_percent="15")
+    conclusions = [html.unescape(line) for line in re.findall(r"<li>(.*?)</li>", html_page)]
+    assert any(line.startswith("Custo da dieta") and "+" in line for line in conclusions)
+    assert any(line.startswith("Custo marginal") for line in conclusions)
+    assert any("Proteína metabolizável (mínimo)" in line for line in conclusions if line.startswith("Restrições"))
+    assert "Ração antes e depois" in html_page
+
+
+def test_sensitivity_rejects_unknown_item():
+    assert "escolha o item a variar" in post(action="sensitivity", sens_param="nada", sens_percent="10")

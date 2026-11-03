@@ -95,22 +95,7 @@
       <p class="muted">Estes valores são as entradas efetivas do otimizador. Você pode editá-los manualmente ou recalculá-los a partir da tabela da vaca.
         O fósforo vem da calculadora NASEM e o fósforo do processo do módulo de fósforo do RuFaS; a restrição usa o <strong>maior</strong> dos dois.</p>
       <div class="fields">
-        {% for key, label, unit in [
-          ('body_weight', 'Peso corporal usado pelo otimizador', 'kg'),
-          ('maintenance_energy', 'Energia de manutenção', 'Mcal/dia'),
-          ('growth_energy', 'Energia de crescimento', 'Mcal/dia'),
-          ('pregnancy_energy', 'Energia de gestação', 'Mcal/dia'),
-          ('lactation_energy', 'Energia de lactação', 'Mcal/dia'),
-          ('metabolizable_protein', 'Proteína metabolizável', 'g/dia'),
-          ('calcium', 'Cálcio', 'g/dia'),
-          ('phosphorus', 'Fósforo', 'g/dia'),
-          ('process_based_phosphorus', 'Fósforo baseado em processo', 'g/dia'),
-          ('dry_matter', 'Matéria seca (DMI)', 'kg/dia'),
-          ('activity_energy', 'Energia de atividade', 'Mcal/dia'),
-          ('enteric_methane', 'Metano entérico médio do lote', 'g/dia'),
-          ('urine_nitrogen', 'Nitrogênio urinário médio do lote', 'kg/dia'),
-          ('milk_price', 'Preço do leite', 'mesma moeda dos alimentos, por kg')
-        ] %}
+        {% for key, label, unit in requirement_fields %}
         <label>{{ label }} <span>{{ unit }}</span>
           <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
         </label>
@@ -147,7 +132,40 @@
       </div>
     </details>
     <button type="submit">Executar formulação</button>
+
+    <details class="panel" open>
+      <summary>Análise de sensibilidade</summary>
+      <p class="muted">Varia um item e formula de novo, com o otimizador escolhido acima: mostra quais alimentos entraram, saíram,
+        aumentaram ou diminuíram, o impacto no custo e no IOFC, o custo marginal e as restrições que limitam a solução.
+        Prefira o SLP: o SLSQP parte de um ponto aleatório, e parte da diferença pode ser ruído.</p>
+      <div class="fields">
+        <label>Item a variar
+          <select name="sens_param">
+            {% for key, (label, unit) in sensitivity_options.items() %}
+            <option value="{{ key }}" {% if form.get('sens_param', 'lactation_energy') == key %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Variação <span>%</span>
+          <input type="number" step="any" name="sens_percent" value="{{ form.get('sens_percent', '10') }}">
+        </label>
+      </div>
+      <button type="submit" name="action" value="sensitivity" class="secondary-button">Analisar sensibilidade</button>
+    </details>
   </form>
+
+  {% if analysis %}
+  <details class="panel result" open>
+    <summary>Sensibilidade · {{ analysis.label }}</summary>
+    <h3>Conclusões</h3>
+    <ul>{% for line in analysis.conclusions %}<li>{{ line }}</li>{% endfor %}</ul>
+    <h3>Ração antes e depois</h3>
+    <table><thead><tr><th>ID</th><th>Alimento</th><th>Antes (kg MS)</th><th>Depois (kg MS)</th><th>Diferença</th></tr></thead>
+      <tbody>{% for row in analysis.rows %}<tr><td>{{ row.id }}</td><td>{{ row.name }}</td><td>{{ '%.4f'|format(row.before) }}</td><td>{{ '%.4f'|format(row.after) }}</td><td>{{ '%+.4f'|format(row.delta) }}</td></tr>{% endfor %}</tbody>
+    </table>
+    <p class="muted">Abaixo, o resultado completo da nova formulação.</p>
+  </details>
+  {% endif %}
 
   {% if result %}
   <details class="panel result" open>

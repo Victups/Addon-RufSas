@@ -14,11 +14,13 @@ import math
 import os
 import sys
 import threading
+import warnings
 from contextlib import contextmanager
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
+import numpy as np
 from flask import Flask, Response, render_template, request
 from werkzeug.datastructures import MultiDict
 
@@ -111,6 +113,29 @@ CONSTRAINT_LABELS = {
     "DMI_constraint_upper": "Matéria seca (máximo)",
     "DMI_constraint_lower": "Matéria seca (mínimo)",
 }
+
+# Fields of the "requirements" panel: (form key, label, unit).
+REQUIREMENT_FIELDS: list[tuple[str, str, str]] = [
+    ("body_weight", "Peso corporal usado pelo otimizador", "kg"),
+    ("maintenance_energy", "Energia de manutenção", "Mcal/dia"),
+    ("growth_energy", "Energia de crescimento", "Mcal/dia"),
+    ("pregnancy_energy", "Energia de gestação", "Mcal/dia"),
+    ("lactation_energy", "Energia de lactação", "Mcal/dia"),
+    ("metabolizable_protein", "Proteína metabolizável", "g/dia"),
+    ("calcium", "Cálcio", "g/dia"),
+    ("phosphorus", "Fósforo", "g/dia"),
+    ("process_based_phosphorus", "Fósforo baseado em processo", "g/dia"),
+    ("dry_matter", "Matéria seca (DMI)", "kg/dia"),
+    ("activity_energy", "Energia de atividade", "Mcal/dia"),
+    ("enteric_methane", "Metano entérico médio do lote", "g/dia"),
+    ("urine_nitrogen", "Nitrogênio urinário médio do lote", "kg/dia"),
+    ("milk_price", "Preço do leite", "por kg, na moeda dos alimentos"),
+]
+
+# Amounts below this (kg DM) count as "not in the ration".
+NEGLIGIBLE = 1e-3
+# A constraint is "at the limit" when its slack is below this fraction of its scale.
+BINDING_TOLERANCE = 5e-4
 
 # The optimizers patch scipy's ``minimize`` and the page changes the process
 # cwd, both process-wide, so Flask's request threads must take turns.
@@ -286,6 +311,17 @@ def _default_form() -> dict[str, str]:
     return values
 
 
+def _constraint_scale(constraint: Mapping[str, Any], size: int, ration_config: Any) -> float:
+    """Size of a constraint, for relative tolerances: for "supply - requirement" it is |g(0)| = the requirement."""
+    try:
+        with warnings.catch_warnings(), np.errstate(all="ignore"):
+            warnings.simplefilter("ignore")
+            value = abs(float(constraint["fun"](np.zeros(size), ration_config)))
+    except (ArithmeticError, ValueError):
+        return 1.0
+    return max(value, 1.0) if math.isfinite(value) else 1.0
+
+
 def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     feeds = _configured_feeds(form)
     requirements = _requirements(form)
@@ -325,6 +361,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
         {
             "name": CONSTRAINT_LABELS.get(constraint["fun"].__name__, constraint["fun"].__name__),
             "slack": float(constraint["fun"](solution.x, ration_config)),
+            "scale": _constraint_scale(constraint, len(solution.x), ration_config),
         }
         for constraint in constraints
     ]
@@ -350,6 +387,83 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
         "iofc": milk_production * milk_price - float(solution.fun),
         "requirements": requirements,
     }
+
+
+def _sensitivity_options(form: Mapping[str, str]) -> dict[str, tuple[str, str]]:
+    """What the sensitivity analysis can vary: every requirement field and the price of each selected feed."""
+    options = {key: (label, unit) for key, label, unit in REQUIREMENT_FIELDS}
+    for feed_id in sorted(_selected_ids(form)):
+        options[f"cost_{feed_id}"] = (f"Preço de {FEED_NAMES.get(feed_id, feed_id)}", "por kg")
+    return options
+
+
+def sensitivity(form: Mapping[str, str]) -> dict[str, Any]:
+    """Solves the scenario, changes one input by a percentage, solves again and explains what changed."""
+    options = _sensitivity_options(form)
+    key = form.get("sens_param", "")
+    if key not in options:
+        raise ValueError("escolha o item a variar")
+    label, unit = options[key]
+    percent = _float(form, "sens_percent")
+    old_value = _float(form, key)
+    new_value = old_value * (1 + percent / 100)
+    changed = MultiDict(form)
+    changed[key] = str(new_value)
+    before, after = simulate(form), simulate(changed)
+
+    amounts_before = {item["id"]: item["amount"] for item in before["ration"]}
+    amounts_after = {item["id"]: item["amount"] for item in after["ration"]}
+    rows = [
+        {
+            "id": feed_id,
+            "name": FEED_NAMES.get(feed_id, f"Feed {feed_id}"),
+            "before": amounts_before.get(feed_id, 0.0),
+            "after": amounts_after.get(feed_id, 0.0),
+            "delta": amounts_after.get(feed_id, 0.0) - amounts_before.get(feed_id, 0.0),
+        }
+        for feed_id in sorted(set(amounts_before) | set(amounts_after))
+    ]
+    rows.sort(key=lambda row: -abs(row["delta"]))
+    cost_before, cost_after = float(before["solution"].fun), float(after["solution"].fun)
+    cost_delta = cost_after - cost_before
+    binding = [
+        row["name"] for row in after["constraints"] if abs(row["slack"]) <= BINDING_TOLERANCE * row["scale"]
+    ]
+
+    conclusions = [f"{label}: {old_value:.4g} → {new_value:.4g} {unit} ({percent:+.4g}%)."]
+    if not (before["solution"].success and after["solution"].success):
+        which = "a original" if not before["solution"].success else "a nova"
+        conclusions.append(f"A comparação não é válida: {which} formulação ficou inviável.")
+    else:
+        relative = f" ({100 * cost_delta / cost_before:+.2f}%)" if cost_before else ""
+        conclusions.append(
+            f"Custo da dieta: {cost_before:.4f} → {cost_after:.4f} por vaca/dia, {cost_delta:+.4f}{relative}."
+        )
+        if new_value != old_value and abs(cost_delta) >= 1e-6:
+            conclusions.append(
+                f"Custo marginal: {cost_delta / (new_value - old_value):+.4g} de custo por unidade a mais de "
+                f"{label.lower()} ({unit})."
+            )
+        conclusions.append(
+            f"IOFC: {before['iofc']:.4f} → {after['iofc']:.4f}, {after['iofc'] - before['iofc']:+.4f} por vaca/dia."
+        )
+        moved = [row for row in rows if abs(row["delta"]) >= NEGLIGIBLE]
+        if not moved:
+            conclusions.append("A ração não mudou: nessa faixa, o item não altera a decisão.")
+        for verb, chosen in (
+            ("Entraram na ração", [r for r in moved if r["before"] < NEGLIGIBLE]),
+            ("Saíram da ração", [r for r in moved if r["after"] < NEGLIGIBLE]),
+            ("Aumentaram", [r for r in moved if r["delta"] > 0 and r["before"] >= NEGLIGIBLE]),
+            ("Diminuíram", [r for r in moved if r["delta"] < 0 and r["after"] >= NEGLIGIBLE]),
+        ):
+            if chosen:
+                listed = "; ".join(f"{r['name']} ({r['delta']:+.3f} kg MS)" for r in chosen)
+                conclusions.append(f"{verb}: {listed}.")
+        if binding:
+            conclusions.append(
+                "Restrições no limite na nova solução (são elas que definem o custo): " + ", ".join(binding) + "."
+            )
+    return {"label": label, "rows": rows, "conclusions": conclusions, "before": before, "after": after}
 
 
 def _scenario(form: Mapping[str, str]) -> dict[str, Any]:
@@ -384,6 +498,7 @@ def _imported_form(upload: Any) -> MultiDict:
 ERROR_PREFIX = {
     "calculate_requirements": "Não foi possível calcular as exigências NASEM",
     "import": "Não foi possível importar o cenário",
+    "sensitivity": "Não foi possível fazer a análise de sensibilidade",
 }
 
 
@@ -398,6 +513,7 @@ def index():
             headers={"Content-Disposition": "attachment; filename=cenario.json"},
         )
     result: dict[str, Any] | None = None
+    analysis: dict[str, Any] | None = None
     error = None
     try:
         if action == "import":
@@ -408,6 +524,9 @@ def index():
                 if key != "body_weight":
                     form[key] = str(getattr(calculated, key))
             form["body_weight"] = form["cow_body_weight"]
+        elif action == "sensitivity":
+            analysis = sensitivity(form)
+            result = analysis["after"]
         elif request.method == "POST":
             result = simulate(form)
     except (KeyError, TypeError, ValueError) as exc:
@@ -422,6 +541,9 @@ def index():
         selected_ids=_selected_ids(form),
         optimizer=form.get("optimizer", "linear"),
         result=result,
+        analysis=analysis,
+        requirement_fields=REQUIREMENT_FIELDS,
+        sensitivity_options=_sensitivity_options(form),
         error=error,
     )
 

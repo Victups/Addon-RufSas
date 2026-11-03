@@ -41,6 +41,23 @@ editado. O formulário permite alterar:
 Os alimentos aparecem com o nome da biblioteca NASEM (coluna `Name`), e a busca
 procura por nome, ID ou categoria.
 
+### Análise de sensibilidade
+
+Escolha um item (qualquer exigência, o preço do leite ou o preço de um alimento
+marcado) e uma variação em %, e clique em **Analisar sensibilidade**. A página
+formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mostra:
+
+- a ração antes e depois, alimento por alimento, com a diferença em kg MS;
+- o custo e o IOFC antes e depois, e o **custo marginal** (variação do custo por
+  unidade do item variado);
+- conclusões em texto: o que entrou, saiu, aumentou ou diminuiu, e quais
+  restrições ficaram **no limite** (margem menor que 0,05% do tamanho da
+  restrição). São essas restrições que definem o custo. Se a ração não muda, o
+  item não limita a decisão naquela faixa.
+
+Prefira o SLP para essa análise. O SLSQP do RuFaS parte de um ponto aleatório, e
+parte da diferença entre as duas formulações pode ser ruído.
+
 ### Cenários em JSON
 
 **Exportar** baixa a página inteira em `cenario.json`: categoria, alojamento,
