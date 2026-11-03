@@ -99,3 +99,10 @@ def test_bad_scenario_files_are_rejected(content):
     upload = {"action": "import", "scenario": (io.BytesIO(content), "x.json")}
     html = client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True)
     assert "Não foi possível importar o cenário" in html
+
+
+def test_iofc_is_milk_revenue_minus_diet_cost():
+    html = post(milk_price="0.5", milk_production="30")
+    cost = float(re.search(r"Custo / vaca / dia</span><strong>([-\d.]+)", html).group(1))
+    iofc = float(re.search(r"IOFC / vaca / dia</span><strong>([-\d.]+)", html).group(1))
+    assert iofc == pytest.approx(30 * 0.5 - cost, abs=1e-3)

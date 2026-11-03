@@ -108,7 +108,8 @@
           ('dry_matter', 'Matéria seca (DMI)', 'kg/dia'),
           ('activity_energy', 'Energia de atividade', 'Mcal/dia'),
           ('enteric_methane', 'Metano entérico médio do lote', 'g/dia'),
-          ('urine_nitrogen', 'Nitrogênio urinário médio do lote', 'kg/dia')
+          ('urine_nitrogen', 'Nitrogênio urinário médio do lote', 'kg/dia'),
+          ('milk_price', 'Preço do leite', 'mesma moeda dos alimentos, por kg')
         ] %}
         <label>{{ label }} <span>{{ unit }}</span>
           <input required type="number" step="any" name="{{ key }}" value="{{ form.get(key, '') }}">
@@ -154,6 +155,7 @@
     <div class="result-top">
       <div><p class="eyebrow">{{ result.optimizer_label }}</p><h2>{{ 'Viável' if result.solution.success else 'Inviável' }}</h2></div>
       <div class="metric"><span>Custo / vaca / dia</span><strong>{{ '%.4f'|format(result.solution.fun) }}</strong></div>
+      <div class="metric"><span>IOFC / vaca / dia</span><strong>{{ '%.4f'|format(result.iofc) }}</strong></div>
       <div class="metric"><span>Iterações</span><strong>{{ result.solution.nit }}</strong></div>
     </div>
     <p class="{{ 'ok' if result.solution.success else 'bad' }}">{{ result.solution.message }}</p>

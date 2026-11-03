@@ -32,6 +32,9 @@ editado. O formulário permite alterar:
 - peso corporal médio;
 - exigências de energia, proteína metabolizável, cálcio, fósforo e matéria seca;
 - metano entérico (g/dia) e nitrogênio urinário (kg/dia) médios do lote;
+- preço do leite, para o **IOFC** (renda sobre o custo de alimentação):
+  `produção de leite × preço − custo da dieta`, por vaca e por dia. Na vaca
+  seca e na novilha a receita é zero, e o IOFC é só o custo com sinal negativo;
 - custo de compra de cada alimento;
 - limites mínimo e máximo de cada alimento.
 

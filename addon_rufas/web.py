@@ -91,6 +91,7 @@ HOUSING = {"Barn": "Confinamento", "Grazing": "Pasto"}
 PEN_DEFAULTS: dict[str, float] = {
     "enteric_methane": 400.0,
     "urine_nitrogen": 0.2,
+    "milk_price": 0.45,  # same currency as the feed costs, per kg of milk
 }
 
 CONSTRAINT_LABELS = {
@@ -301,6 +302,10 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     urine_nitrogen = _float(form, "urine_nitrogen")
     if enteric_methane < 0 or urine_nitrogen < 0:
         raise ValueError("metano e nitrogênio urinário não podem ser negativos")
+    milk_price = _float(form, "milk_price")
+    milk_production = _float(form, "milk_production") if _category(form)[2] else 0.0
+    if milk_price < 0 or milk_production < 0:
+        raise ValueError("preço e produção de leite não podem ser negativos")
     optimizer = optimizer_type()
     with _SOLVER_LOCK, _rufas_working_directory():
         solution, ration_config = optimizer.attempt_optimization(
@@ -340,6 +345,9 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
             if amount > 1e-7
         ],
         "constraints": constraint_rows,
+        # Income over feed cost per cow per day: milk revenue minus diet cost.
+        "milk_revenue": milk_production * milk_price,
+        "iofc": milk_production * milk_price - float(solution.fun),
         "requirements": requirements,
     }
 
