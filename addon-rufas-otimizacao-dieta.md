@@ -262,10 +262,13 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 3. **Instrumentar o baseline:** registrar tempo, iterações, sucesso, DMI e custo por formulação (`addon_rufas/instrument.py`). ✅ Faltam re-tentativas e fallback.
 4. **Artefato:** `LinearRationOptimizer`, validado contra o SLSQP em problemas com alimentos reais da biblioteca NASEM/NRC (`tests/`). ✅
 5. **Integração:** runner que injeta o otimizador no RuFaS sem editá-lo. ✅
-6. **Preços CEPEA** (M6). ⏳
+6. **Preços CEPEA** (M6). ⏳ O procedimento de coleta e conversão está pronto ([`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md), seção 7). Faltam baixar as séries e preencher os preços.
 7. **Bateria de experimentos:** baseline × PL nas fazendas fornecidas pelo professor. ⏳ (aguardando as fazendas)
-8. **Análise comparativa e econômica, e relatório.** ⏳
-9. *(Extensão)* M5 (formulação diária/por animal) e M7, se sobrar tempo.
+8. **Análise comparativa e econômica, e relatório.** ⏳ O IOFC e a comparação pareada estão prontos; falta rodar com preços reais.
+9. **Modelo NRC clássico em PuLP** (R5, R8): `addon_rufas/nrc_lp.py`, com preços-sombra e diagnóstico de inviabilidade. ✅
+10. **Análise de sensibilidade** (R3) e **interface** (R6): `addon_rufas/web.py`. ✅
+11. **Documentação** (R7): [`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md) e [`README.md`](README.md). ✅
+12. *(Extensão)* M5 (formulação diária/por animal) e M7, se sobrar tempo.
 
 ---
 
@@ -273,7 +276,7 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 
 - ~~O foco é solver ou modelagem?~~ **Definido:** modelo linear (PL), integrado e comparado com o RuFaS, com análise econômica. Confirmar se a **formulação por animal/diária (M5)** entra no escopo.
 - ~~PuLP: obrigatório?~~ **Decidido:** modelo linear clássico NRC em **PuLP** como artefato principal e base da sensibilidade; o SLP/HiGHS atual fica como ponte fiel ao RuFaS para a comparação econômica.
-- ~~Interface (R6)~~ **Decidido:** web local com **Streamlit**.
+- ~~Interface (R6)~~ **Decidido:** web local. O plano era Streamlit, mas a interface foi feita em **Flask** (`addon_rufas/web.py`) e foi mantida.
 - ~~"Livro de análise de sensibilidade"~~ **Decidido:** o professor não vai indicar o título. Usa-se a teoria padrão de sensibilidade em PL (preço-sombra, custo reduzido, faixas de validade de custo e de lado direito, análise de cenários) e cita-se a fonte usada no relatório.
 - Formulação **por animal** ou por **baia/grupo**?
 - Padrões: anotações citam "NRC 2021" e "MASEM 2021" — o RuFaS implementa **NRC 2001** e **NASEM 2021**.
@@ -334,5 +337,5 @@ Sucesso: 100% nos dois. Iterações: LP ~3, SLSQP 5 a 8.
 ### Ressalvas
 - Os preços do exemplo são genéricos (0,01 a 1,0 por kg), então o **ganho econômico real só aparece com os preços CEPEA** e as fazendas do professor. Os números acima validam a correção e a velocidade, não a economia.
 - Para restrições não lineares (energia, proteína) o SLP converge a um ótimo **local**, não global; a garantia de ótimo global vale para a parte linear.
-- Quando o problema é inviável, o LP reporta falha, mas ainda não devolve o ponto "mais próximo de viável" (diagnóstico M4 completo fica pendente).
+- Quando o problema é inviável, o SLP reporta falha, mas não devolve o ponto "mais próximo de viável". O modelo NRC em PuLP já tem esse diagnóstico: um PL elástico que diz quanto falta de cada nutriente.
 - Ainda não medidos: re-tentativas e fallback do baseline, que a análise comparativa final precisa incluir.

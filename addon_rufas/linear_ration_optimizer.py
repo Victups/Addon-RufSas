@@ -120,8 +120,10 @@ class LinearRationOptimizer(RationOptimizer):
         """
         Solves the LP of the constraints linearized at `x`, inside a trust region of half-width `trust` (kg).
 
-        Returns the new point and the duals of the constraints, or None when the LP is infeasible. If it is infeasible
-        inside the trust region, the region is dropped, since infeasibility within the feed limits is real.
+        Returns the new point and the duals of the constraints. If the LP is infeasible inside the trust region, the
+        region is dropped. If it is infeasible even within the feed limits, the linearization is too poor at `x` (the
+        nonlinear problem may still be feasible), so it takes a phase-1 step instead: the point of the trust region that
+        minimizes the total linearized violation, with zero duals. Returns None only if that LP fails too.
         """
         value, jacobian = self._linearize(constraints, x, ration_config)
         margin = self.CONSTRAINT_MARGIN if margin is None else margin
@@ -132,7 +134,17 @@ class LinearRationOptimizer(RationOptimizer):
             lp = linprog(price, A_ub=-jacobian, b_ub=rhs, bounds=box, method="highs")
             if lp.status == 0:
                 return lp.x, lp.ineqlin.marginals
-        return None
+        # Phase 1, inside the trust region: minimize sum(s) s.t. -J z - s <= rhs, s >= 0.
+        box = np.column_stack([np.maximum(lower, x - trust), np.minimum(upper, x + trust)])
+        n, m = len(x), len(value)
+        lp = linprog(
+            np.concatenate([np.zeros(n), np.ones(m)]),
+            A_ub=np.hstack([-jacobian, -np.eye(m)]),
+            b_ub=rhs,
+            bounds=np.vstack([box, np.column_stack([np.zeros(m), np.full(m, np.inf)])]),
+            method="highs",
+        )
+        return (lp.x[:n], np.zeros(m)) if lp.status == 0 else None
 
     def _restore_feasibility(
         self,
