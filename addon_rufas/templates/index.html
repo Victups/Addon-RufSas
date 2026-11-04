@@ -23,6 +23,7 @@
   </nav>
 
   {% if error %}<div class="alert">{{ error }}</div>{% endif %}
+  {% if notice %}<p class="muted">{{ notice }}</p>{% endif %}
   <form method="post" enctype="multipart/form-data">
     <details class="panel" open>
       <summary>Cenário (JSON)</summary>

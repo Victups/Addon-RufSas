@@ -1,4 +1,5 @@
 import html
+from pathlib import Path
 import io
 import json
 import re
@@ -128,3 +129,14 @@ def test_pulp_model_in_the_page_reports_shadow_prices():
     assert "<h2>Viável</h2>" in page and "Preço-sombra" in page
     infeasible = html.unescape(post(optimizer="pulp"))  # the Midwest farm has no vitamin premix
     assert "Vitamina A: falta" in infeasible and "VitTM Premix, generic (300)" in infeasible
+
+
+def test_imports_a_dietopt_scenario_file():
+    content = (Path(__file__).parent / "data" / "cenario-dietopt.json").read_bytes()
+    upload = {"action": "import", "scenario": (io.BytesIO(content), "cenario-avaliar-dietas.json")}
+    page = html.unescape(client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True))
+    assert "Não foi possível importar" not in page
+    assert sorted(re.findall(r'name="selected_feeds" value="(\d+)" checked', page), key=int) == ["23", "44", "50", "110", "167", "230"]
+    assert field(page, "cow_body_weight") == 680 and field(page, "walking_distance") == 100
+    assert field(page, "cost_23") == 1.1 and field(page, "max_230") == 0.6
+    assert "diets" in page  # the evaluated diets are not used by this page, and the note says so

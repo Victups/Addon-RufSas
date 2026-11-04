@@ -1,0 +1,40 @@
+{
+  "format": "dietopt-scenario",
+  "version": 1,
+  "kind": "module",
+  "saved_at": "2026-11-03T19:56:45",
+  "data": {
+    "standard": "NASEM",
+    "category": "LAC_COW",
+    "animalType": "LAC_COW",
+    "cow": {
+      "body_weight": 680.0,
+      "mature_body_weight": 680.0,
+      "parity": 3.0,
+      "days_in_milk": 120.0,
+      "day_of_pregnancy": 30.0,
+      "body_condition_score_5": 3.0,
+      "calving_interval": 400.0,
+      "milk_production": 35.0,
+      "milk_fat": 3.8,
+      "milk_true_protein": 3.2,
+      "milk_lactose": 4.8,
+      "housing": "Barn",
+      "distance": 100.0,
+      "process_based_phosphorus_requirement": 40.0
+    },
+    "override": {},
+    "feeds": [
+      {"id": 23, "price": 1.1, "min": 0.0, "max": 1.0},
+      {"id": 44, "price": 0.28, "min": 0.0, "max": 100.0},
+      {"id": 50, "price": 0.09, "min": 0.0, "max": 100.0},
+      {"id": 110, "price": 0.12, "min": 0.0, "max": 100.0},
+      {"id": 167, "price": 0.55, "min": 0.0, "max": 100.0},
+      {"id": 230, "price": 0.1, "min": 0.0, "max": 0.6}
+    ],
+    "diets": [{"name": "1", "amounts": {"50": 12.37, "110": 12.37}}],
+    "tolerance": 1.0,
+    "resolution": "normal",
+    "seeds": 5
+  }
+}

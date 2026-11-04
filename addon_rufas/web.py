@@ -574,8 +574,71 @@ def _scenario(form: Mapping[str, str]) -> dict[str, Any]:
     return data
 
 
-def _imported_form(upload: Any) -> MultiDict:
-    """Default page state overridden by an uploaded scenario JSON (any subset of the exported keys)."""
+# "dietopt-scenario" files (another diet tool): category codes and cow field names in this page's terms.
+DIETOPT_CATEGORIES = {"LAC_COW": "lactacao", "DRY_COW": "seca", "CLOSE_UP": "seca", "GROWING": "novilha",
+                      "HEIFER_I": "novilha", "HEIFER_II": "novilha", "HEIFER_III": "novilha"}
+DIETOPT_COW_FIELDS = {
+    "body_weight": "cow_body_weight",
+    "mature_body_weight": "mature_body_weight",
+    "parity": "parity",
+    "days_in_milk": "days_in_milk",
+    "day_of_pregnancy": "day_of_pregnancy",
+    "body_condition_score_5": "body_condition_score",
+    "calving_interval": "calving_interval",
+    "milk_production": "milk_production",
+    "milk_fat": "milk_fat",
+    "milk_true_protein": "milk_true_protein",
+    "milk_lactose": "milk_lactose",
+    "housing": "housing",
+    "distance": "walking_distance",
+    "average_daily_gain_heifer": "average_daily_gain",
+    "ndf_percentage": "ndf_percentage",
+    "process_based_phosphorus_requirement": "process_based_phosphorus",
+}
+
+
+def _from_dietopt(data: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """Converts a dietopt-scenario payload to this page's flat keys; returns it and the fields this page cannot use."""
+    flat: dict[str, Any] = {}
+    ignored = sorted(set(data) - {"category", "animalType", "cow", "override", "feeds", "standard"})
+    if data.get("standard", "NASEM") != "NASEM":
+        ignored.append(f"standard={data['standard']} (a página calcula exigências pelo NASEM)")
+    category = data.get("category") or data.get("animalType")
+    if category is not None:
+        if category not in DIETOPT_CATEGORIES:
+            raise ValueError(f"categoria desconhecida: {category}")
+        flat["category"] = DIETOPT_CATEGORIES[category]
+    for key, value in (data.get("cow") or {}).items():
+        if key in DIETOPT_COW_FIELDS:
+            flat[DIETOPT_COW_FIELDS[key]] = value
+        else:
+            ignored.append(f"cow.{key}")
+    if "cow_body_weight" in flat:
+        flat["body_weight"] = flat["cow_body_weight"]
+    for key, value in (data.get("override") or {}).items():
+        if key in DEFAULTS:
+            flat[key] = value
+        else:
+            ignored.append(f"override.{key}")
+    if "feeds" in data:
+        selected = []
+        for feed in data["feeds"]:
+            feed_id = int(feed["id"])
+            if feed_id not in LIBRARY_ROWS:
+                raise ValueError(f"alimento {feed_id} não existe na biblioteca NASEM")
+            selected.append(feed_id)
+            for target, source in (("cost", "price"), ("min", "min"), ("max", "max")):
+                if source in feed:
+                    flat[f"{target}_{feed_id}"] = feed[source]
+        flat["selected_feeds"] = selected
+    return flat, ignored
+
+
+def _imported_form(upload: Any) -> tuple[MultiDict, str | None]:
+    """
+    Default page state overridden by an uploaded scenario JSON: this page's export (any subset of its keys), the same
+    inside a {"data": ...} envelope, or a "dietopt-scenario" file. Returns the form and a note on ignored fields.
+    """
     if upload is None or not upload.filename:
         raise ValueError("escolha um arquivo JSON")
     data = json.load(upload.stream)
@@ -585,6 +648,11 @@ def _imported_form(upload: Any) -> MultiDict:
     # newer scenario exporters.
     if isinstance(data.get("data"), dict):
         data = data["data"]
+    note = None
+    if isinstance(data.get("cow"), dict) or isinstance(data.get("feeds"), list):
+        data, ignored = _from_dietopt(data)
+        if ignored:
+            note = "Cenário importado. Campos que esta página não usa e foram ignorados: " + ", ".join(ignored) + "."
     defaults = _default_form()
     unknown = sorted(set(data) - set(defaults))
     if unknown:
@@ -597,7 +665,7 @@ def _imported_form(upload: Any) -> MultiDict:
     if not isinstance(selected, list):
         raise ValueError("selected_feeds deve ser uma lista de IDs")
     form.setlist("selected_feeds", [str(int(feed_id)) for feed_id in selected])
-    return form
+    return form, note
 
 
 ERROR_PREFIX = {
@@ -619,10 +687,10 @@ def index():
         )
     result: dict[str, Any] | None = None
     analysis: dict[str, Any] | None = None
-    error = None
+    error = notice = None
     try:
         if action == "import":
-            form = _imported_form(request.files.get("scenario"))
+            form, notice = _imported_form(request.files.get("scenario"))
         elif action == "calculate_requirements":
             calculated = _calculate_nasem_requirements(form)
             for key in DEFAULTS:
@@ -651,6 +719,7 @@ def index():
         nrc_fields=NRC_FIELDS,
         sensitivity_options=_sensitivity_options(form),
         error=error,
+        notice=notice,
     )
 
 
