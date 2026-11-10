@@ -11,7 +11,7 @@ def load(results_dir: Path) -> list[dict]:
     """All logged formulation records."""
     return [
         json.loads(line)
-        for path in sorted(results_dir.glob("*/formulations_*.jsonl"))
+        for path in sorted(results_dir.rglob("formulations_*.jsonl"))  # results/ or one run's folder
         for line in path.read_text(encoding="utf-8").splitlines()
     ]
 

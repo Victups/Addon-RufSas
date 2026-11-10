@@ -40,13 +40,28 @@ def install(optimizer: str, output_dir: Path) -> None:
     record_formulations(LinearRationOptimizer, log_path, "lp", shadow, "slsqp")
 
 
+PATH_OPTIONS = {"-p", "--path-to-metadata", "-o", "--output-dir", "-l", "--logs-dir"}
+
+
+def _absolute_paths(args: list[str]) -> list[str]:
+    """RuFaS runs from its own folder, so path options given relative to the caller's folder are made absolute."""
+    args = list(args)
+    for index, arg in enumerate(args[:-1]):
+        if arg in PATH_OPTIONS:
+            value = args[index + 1]
+            args[index + 1] = str(Path(value).resolve()) + ("/" if value.endswith(("/", "\\")) else "")
+    return args
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--optimizer", choices=["slsqp", "lp", "compare"], default="slsqp")
     options, rufas_args = parser.parse_known_args()
+    rufas_args = _absolute_paths(rufas_args)
 
-    output_dir = ROOT / "results" / options.optimizer
-    if not {"-o", "--output-dir"} & set(rufas_args):
+    given = [rufas_args[i + 1] for i, arg in enumerate(rufas_args[:-1]) if arg in {"-o", "--output-dir"}]
+    output_dir = Path(given[0]) if given else ROOT / "results" / options.optimizer
+    if not given:
         rufas_args += ["-o", f"{output_dir}/", "-l", f"{output_dir / 'logs'}/"]
     os.environ[OPTIMIZER_VARIABLE] = options.optimizer
     os.environ[OUTPUT_VARIABLE] = str(output_dir)

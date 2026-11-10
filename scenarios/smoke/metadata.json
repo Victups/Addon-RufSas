@@ -3,14 +3,14 @@
     "config": {
       "title": "Config Data",
       "description": "Configuration file for general simulation parameters.",
-      "path": "C:/Users/sraus/Documents/ifg/Addon-rufsas/scenarios/smoke/config.json",
+      "path": "../../scenarios/smoke/config.json",
       "type": "json",
       "properties": "config_properties"
     },
     "animal": {
       "title": "Animal data",
       "description": "Input data and configuration information for animal management decisions, herd attributes, and housing properties.",
-      "path": "C:/Users/sraus/Documents/ifg/Addon-rufsas/scenarios/smoke/animal.json",
+      "path": "../../scenarios/smoke/animal.json",
       "type": "json",
       "properties": "animal_properties"
     },
