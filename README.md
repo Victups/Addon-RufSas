@@ -110,7 +110,23 @@ desses. O arquivo pode ter só parte dos campos; o resto fica no padrão. Exempl
 ```
 
 Campos desconhecidos são recusados, para que um erro de digitação não passe em
-silêncio.
+silêncio. O mesmo conteúdo dentro de um envelope `{"data": {...}}` também é aceito.
+
+O importador também lê arquivos **`dietopt-scenario`**, gerados por outra
+ferramenta de dieta, e converte cada parte para os campos da página:
+
+| No arquivo | Na página |
+|---|---|
+| `category` (`LAC_COW`, `DRY_COW`, `CLOSE_UP`, `GROWING`, `HEIFER_*`) | categoria: lactação, seca ou novilha |
+| `cow.body_weight`, `parity`, `days_in_milk`, `milk_*`, `housing` etc. | dados da vaca |
+| `cow.distance`, `cow.body_condition_score_5` | distância percorrida, escore de condição corporal |
+| `cow.process_based_phosphorus_requirement` | fósforo do processo |
+| `override` | exigências digitadas, quando o nome bate com um campo da página |
+| `feeds` (`id`, `price`, `min`, `max`) | alimentos marcados, preço, mínimo e máximo |
+
+Campos sem equivalente na página (`diets`, `tolerance`, `resolution`, `seeds`)
+são ignorados, e a página avisa quais foram. Um `standard` diferente de NASEM
+também é ignorado com aviso, porque a página calcula as exigências pelo NASEM.
 
 ### Os dois fósforos
 
@@ -328,7 +344,8 @@ g_linear(z) = g(x) + J * (z - x)
 
 O HiGHS resolve essa aproximação como um LP dentro de uma região de confiança.
 O ponto candidato é aceito somente quando reduz o custo com penalidade pelas
-violações; então a região pode ser reduzida e o processo se repete. Assim, as
+violações; se não reduz, a região de confiança é reduzida à metade, e o processo
+se repete. Assim, as
 funções não lineares (`NE_*`, NASEM e proteína metabolizável) são aproximadas
 localmente, enquanto a avaliação final continua usando as funções originais do
 RuFaS. Há ainda uma etapa de restauração que reaplica as linearizações até que
