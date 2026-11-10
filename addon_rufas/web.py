@@ -23,6 +23,7 @@ from typing import Any, Iterator, Mapping
 
 import numpy as np
 from flask import Flask, Response, render_template, request
+import markdown
 from werkzeug.datastructures import MultiDict
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -725,7 +726,9 @@ def index():
 
 @app.get("/sobre")
 def about():
-    return render_template("about.html")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    readme_html = markdown.markdown(readme, extensions=["fenced_code", "tables"])
+    return render_template("about.html", readme_html=readme_html)
 
 
 if __name__ == "__main__":

@@ -34,5 +34,8 @@ button { background: #3eaa64; border: 0; border-radius: 8px; color: #07140c; cur
 pre { background: #101a15; border: 1px solid #30483a; border-radius: 8px; overflow-x: auto; padding: 14px; }
 pre code { color: #d7f0dd; }
 .about-content table { min-width: 0; }
+.readme h1:first-child { margin-top: 0; }
+.readme a { color: #8be0a5; }
+.readme hr { border: 0; border-top: 1px solid #30483a; margin: 24px 0; }
 @media (max-width: 650px) { .hero, .result-top { align-items: flex-start; flex-direction: column; } .metric { text-align: left; } }
 @media (max-width: 650px) { .section-heading { flex-direction: column; } .search { max-width: none; width: 100%; } }

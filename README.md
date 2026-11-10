@@ -287,3 +287,74 @@ dados da vaca
   -> RationOptimizer / LinearRationOptimizer
   -> restrições da dieta
 ```
+
+## Origem e linearidade das restrições
+
+As restrições abaixo são as que o método original do RuFaS (`RationOptimizer`)
+monta para a formulação. A coluna **Linearidade no RuFaS** descreve a função
+original, antes da substituição do SLSQP pelo SLP.
+
+| Restrição | Função de origem no RuFaS | Linearidade no RuFaS | Explicação |
+|---|---|---|---|
+| Energia total | `NE_total_constraint` | Não linear | Calcula energia de manutenção, crescimento e lactação e aplica `max`; a oferta depende de energia digestível/metabolizável. |
+| Energia de manutenção e atividade | `NE_maintenance_and_activity_constraint` | Não linear | A exigência é fixa, mas a oferta passa pelas taxas de desconto e conversão de energia do RuFaS. |
+| Energia de lactação | `NE_lactation_constraint` | Não linear | Usa energia digestível e metabolizável, com conversões dependentes da composição e da ingestão. |
+| Energia de crescimento | `NE_growth_constraint` | Não linear | Usa a conversão de energia para crescimento sobre a energia metabolizável calculada para a ração. |
+| Energia líquida NASEM | `NASEM_net_energy_constraint` | Não linear | O desconto de ingestão e a energia metabolizável NASEM dependem da ração, do peso, do amido, do metano e do nitrogênio urinário. |
+| Cálcio | `calcium_constraint` | Linear | Soma, alimento a alimento, quantidade, teor de cálcio e digestibilidade fixa por tipo de alimento. |
+| Fósforo | `phosphorus_constraint` | Linear | Soma o fósforo digestível de cada alimento e compara com o maior requisito NASEM ou do processo. |
+| Proteína metabolizável mínima | `protein_constraint_lower` | Não linear | A produção de proteína microbiana usa `min` entre duas fontes e as taxas de passagem dependem da ingestão e da composição. |
+| Proteína metabolizável máxima | `protein_constraint_upper` | Não linear | Usa a mesma oferta não linear da proteína metabolizável, limitada por um fator do requisito inicial. |
+| FDN mínima | `NDF_constraint_lower` | Linear equivalente | A origem calcula uma proporção dividindo FDN pela matéria seca; como o limite é constante, é equivalente a `soma(FDN_i*x_i) - limite*soma(x_i) >= 0`. |
+| FDN máxima | `NDF_constraint_upper` | Linear equivalente | A proporção original pode ser multiplicada pela matéria seca positiva, resultando em uma desigualdade linear. |
+| FDN de forragem mínima | `forage_NDF_constraint` | Linear equivalente | Também é uma proporção da ração; o numerador é uma soma linear de FDN de forragem e o denominador é a matéria seca. |
+| Gordura máxima | `fat_constraint` | Linear equivalente | A porcentagem de gordura é uma razão entre duas somas; multiplicar pelo DMI transforma a condição em soma linear. |
+| Matéria seca mínima | `DMI_constraint_lower` | Linear | É diretamente a soma das quantidades dos alimentos menos o requisito mínimo ajustado. |
+| Matéria seca máxima | `DMI_constraint_upper` | Linear | É diretamente o limite máximo menos a soma das quantidades dos alimentos. |
+
+### Como o SLP lineariza as restrições não lineares
+
+O `LinearRationOptimizer` não reimplementa as equações NASEM/NRC nem troca as
+funções do RuFaS. Em cada iteração, ele avalia cada restrição original
+`g(x)` no ponto atual `x` e calcula numericamente o jacobiano por diferenças
+finitas, usando `h = 1e-4 * max(1, x_i)`:
+
+```text
+g(x + h*e_i) - g(x)
+J_i = --------------------
+           h
+g_linear(z) = g(x) + J * (z - x)
+```
+
+O HiGHS resolve essa aproximação como um LP dentro de uma região de confiança.
+O ponto candidato é aceito somente quando reduz o custo com penalidade pelas
+violações; então a região pode ser reduzida e o processo se repete. Assim, as
+funções não lineares (`NE_*`, NASEM e proteína metabolizável) são aproximadas
+localmente, enquanto a avaliação final continua usando as funções originais do
+RuFaS. Há ainda uma etapa de restauração que reaplica as linearizações até que
+as restrições não lineares originais sejam satisfeitas.
+
+## Exemplo final: executar o código
+
+Na raiz do repositório, com o RuFaS disponível em `RufSas/RuFaS`:
+
+```bash
+python -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m addon_rufas.web
+```
+
+No Windows PowerShell, use:
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python -m addon_rufas.web
+```
+
+Depois, abra `http://127.0.0.1:5000`. Para executar a comparação da simulação:
+
+```bash
+.venv/bin/python -m addon_rufas.run --optimizer compare -g -v errors -p scenarios/smoke/task_manager_metadata.json
+.venv/bin/python -m addon_rufas.summarize results/compare
+```

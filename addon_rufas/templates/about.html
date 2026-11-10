@@ -24,10 +24,14 @@
   </nav>
 
   <section class="panel about-content">
+    <article class="readme">
+      {{ readme_html|safe }}
+    </article>
+    <hr>
     <details open>
       <summary>Como iniciar</summary>
-      <p>Na raiz do repositório, instale as dependências web e execute:</p>
-      <pre><code>pip install -r requirements-web.txt
+      <p>Na raiz do repositório, instale as dependências e execute:</p>
+      <pre><code>pip install -r requirements.txt
 PYTHONPATH=.:RufSas/RuFaS python -m addon_rufas.web</code></pre>
       <p>Depois, abra <code>http://127.0.0.1:5000</code> no navegador.</p>
     </details>
