@@ -209,6 +209,8 @@ O CEPEA (Esalq/USP) publica indicadores de preço sob a licença CC BY-NC 4.0. O
 {"milk_price": 2.35, "cost_44": 1.34, "cost_50": 0.62, "selected_feeds": [44, 50, 95, 104, 300, 234, 239]}
 ```
 
+**Preços já coletados:** [`scenarios/precos/goias-2026-11.json`](../scenarios/precos/goias-2026-11.json) tem o leite (CEPEA, Goiás, set/2026), o milho (CEPEA, 10/11/2026), o farelo de soja (Rio Verde, 13/11/2026) e silagem, caroço e casca de soja (fazenda de Goiás, 2025). As fontes e as ressalvas estão no [README da pasta](../scenarios/precos/README.md). Com esses preços, a vaca padrão sai a R$ 30,26 por dia, com IOFC de R$ 64,31.
+
 Para a comparação econômica final, os mesmos preços entram no `feed.json` do cenário da simulação (`purchased_feed_cost`), e roda-se o modo `compare`.
 
 ## 8. Testes
