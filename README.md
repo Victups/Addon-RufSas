@@ -16,6 +16,8 @@ otimizador em tempo de execução.
   econômica, CEPEA, testes, limitações): [`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md)
 - Escopo e plano de entregas: [`addon-rufas-otimizacao-dieta.md`](addon-rufas-otimizacao-dieta.md)
 - Notas dos livros NRC 2001 e NASEM 2021: [`docs/notas-livros.md`](docs/notas-livros.md)
+- Rascunho do relatório final: [`docs/RELATORIO.md`](docs/RELATORIO.md)
+- Preços reais de Goiás (CEPEA e praça): [`scenarios/precos/`](scenarios/precos/README.md)
 
 ## Instalação
 

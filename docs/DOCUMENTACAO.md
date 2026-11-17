@@ -72,6 +72,8 @@ O SLP resolve esse mesmo modelo assim:
 
 O ponto inicial é determinístico, então a mesma entrada sempre dá a mesma ração.
 
+**Re-tentativas e fallback.** Quando a formulação de um lote de vacas em lactação falha, o RuFaS (`Pen._run_formulation_attempts`) tenta de novo, cortando a produção de leite exigida ou aumentando o consumo de matéria seca. Se ainda assim falha, usa a ração anterior ou a definida pelo usuário. O `run.py` registra cada evento de reformulação em `events_<pid>.jsonl`, com o número de tentativas, os cortes de leite e o fallback, e o `summarize` mostra a tabela. Na fazenda de exemplo não houve nenhuma falha, nem com o SLSQP nem com o SLP: 1 tentativa por evento.
+
 ### 3.3 O modelo NRC clássico (PuLP)
 
 Unidades: os teores vêm da biblioteca do RuFaS (`NASEM_Comp_with_TDN.csv`):
@@ -125,9 +127,16 @@ Se a ração não muda, o item não limita a decisão naquela faixa.
 
 Exemplo com os alimentos padrão e o SLP: **+15% de proteína metabolizável** faz o custo passar de 0,2918 para 0,5421 (+86%), com custo marginal de 0,00073 por g. Entram silagem de milho, feno, farinha de sangue e mineral, e a silagem de leguminosa sai. Ficam no limite cálcio, PM mínima e FDN máximo.
 
-**2. Preços-sombra (modelo NRC em PuLP).** O dual de cada restrição diz **quanto o custo sobe se a exigência subir 1 unidade**. Restrições com folga têm preço-sombra zero. Nas restrições em % da MS, o dual é convertido para "custo por 1 ponto percentual" (dual × MS total). Os testes conferem que o preço-sombra é igual à diferença finita do custo:
+**2. Preços-sombra, faixas de validade e custos reduzidos (modelo NRC em PuLP).** O dual de cada restrição diz **quanto o custo sobe se a exigência subir 1 unidade**. Restrições com folga têm preço-sombra zero. Nas restrições em % da MS, o dual é convertido para "custo por 1 ponto percentual" (dual × MS total). Os testes conferem que o preço-sombra é igual à diferença finita do custo:
 - +0,5 Mcal de energia: previsto 0,119633, observado 0,119633;
 - +10 g de PM: previsto 0,001622, observado 0,001622.
+
+A análise de faixas (*ranging*) do HiGHS completa a sensibilidade clássica de PL:
+- **Faixa de validade:** para cada restrição, mostra entre que valores da exigência o preço-sombra continua valendo. No caso de teste, a energia vale 0,239 por Mcal entre 33,1 e 35,7 Mcal; acima disso, o custo sobe mais rápido.
+- **Custo reduzido:** para cada alimento fora da dieta, mostra quanto o preço precisa cair para ele entrar. O feno, por exemplo, tem 0,56, ou seja, não entraria nem de graça.
+- **Faixa de preço:** para cada alimento na dieta, mostra em que intervalo de preço a ração continua ótima.
+
+A página escreve uma leitura em texto para cada alimento. Os testes conferem as faixas resolvendo o problema de novo, logo dentro e logo fora delas.
 
 Com o SLSQP, parte da diferença entre duas formulações pode ser ruído do ponto inicial aleatório. Para a análise, prefira o SLP ou o PuLP, que são determinísticos.
 
@@ -215,9 +224,10 @@ Para a comparação econômica final, os mesmos preços entram no `feed.json` do
 
 ## 8. Testes
 
-`.venv\Scripts\python -m pytest` roda 32 testes, todos com alimentos reais da biblioteca do RuFaS:
+`.venv\Scripts\python -m pytest` roda 34 testes, todos com alimentos reais da biblioteca do RuFaS:
 - **SLP** (`test_linear_ration_optimizer.py`): ração viável, custo ≤ SLSQP, determinismo e inviabilidade reportada.
-- **NRC/PuLP** (`test_nrc_lp.py`): todas as restrições atendidas, preço-sombra igual à diferença finita, e diagnóstico de inviabilidade.
+- **NRC/PuLP** (`test_nrc_lp.py`): todas as restrições atendidas, preço-sombra igual à diferença finita, faixas de validade e custo reduzido conferidos por re-solução, e diagnóstico de inviabilidade.
+- **Instrumentação** (`test_instrument.py`): contagem de tentativas, cortes de leite e fallback num lote simulado que falha.
 - **Interface** (`test_web.py`):
   - páginas, nomes das restrições, erros de entrada e as três categorias;
   - alojamento, fósforo do processo, IOFC;
@@ -247,6 +257,6 @@ O TCC *Formulação Nutricional Otimizada como Ferramenta para Aumento de Margem
 
 **Pendente:**
 - rodar as fazendas do professor no modo `compare` com preços CEPEA;
-- medir as re-tentativas e o fallback do SLSQP;
+- medir as re-tentativas e o fallback nas fazendas do professor (a medição já existe; na fazenda de exemplo não houve falhas);
 - ligar o modelo PuLP dentro da simulação;
 - terminar a leitura catalogada dos livros (o NASEM 2021 é escaneado e precisa de OCR).
