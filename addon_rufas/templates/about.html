@@ -114,9 +114,13 @@
 
     <details>
       <summary>Observações sobre os resultados</summary>
-      <p>O SLP usa um ponto inicial determinístico. O otimizador original pode
-        usar um ponto inicial aleatório quando não existe uma ração anterior;
-        por isso, pequenas diferenças entre execuções do SLSQP são esperadas.</p>
+      <p>O SLP usa um ponto inicial determinístico. O otimizador original do
+        RuFaS usa um ponto inicial aleatório quando não existe uma ração
+        anterior. Isso pode mudar a trajetória e o ponto final do SLSQP; a
+        diferença não deve ser chamada automaticamente de erro, pois SLP e
+        SLSQP têm métodos de solução diferentes e o modelo NRC ainda usa outra
+        formulação. Consulte no README a distinção entre variação algorítmica,
+        aproximação do SLP e diferença real de modelo.</p>
       <p>Na tabela de resultados, margem maior ou igual a zero indica que a
         restrição foi atendida.</p>
     </details>

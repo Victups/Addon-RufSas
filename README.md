@@ -93,10 +93,58 @@ formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mos
   restrição). São essas restrições que definem o custo. Se a ração não muda, o
   item não limita a decisão naquela faixa.
 
-Prefira o SLP ou o modelo NRC para essa análise. O SLSQP do RuFaS parte de um
-ponto aleatório, e parte da diferença entre as duas formulações pode ser ruído.
+Para essa análise, prefira o SLP ou o modelo NRC. Isso não significa que o
+SLSQP faça uma “conta errada”: o custo e as restrições continuam sendo
+calculados pelas equações do RuFaS. A recomendação existe por dois motivos
+verificáveis no código:
+
+1. o `RationOptimizer._build_initial_value` do RuFaS usa `[1.0]` para o
+   primeiro alimento e `random.random() * 10` para os demais quando não há uma
+   ração anterior;
+2. o SLSQP é um método iterativo para o problema não linear e depende desse
+   ponto inicial, dos limites, das tolerâncias e do caminho de iterações para
+   chegar a uma solução. O add-on não fixa a semente aleatória do RuFaS.
+
+Por isso, duas execuções do SLSQP podem terminar em pontos viáveis diferentes,
+parar por critérios numéricos diferentes ou encontrar custos ligeiramente
+distintos. Essa parcela é chamada de **variação algorítmica** (ou ruído
+numérico), não de erro da aritmética. Se o problema tiver uma solução ótima
+única e o SLSQP convergir adequadamente nas duas execuções, a conta deve
+reproduzir o mesmo resultado dentro da tolerância numérica. Se a diferença
+persistir ou for grande, ela deve ser investigada como convergência, ponto
+inicial, inviabilidade ou diferença de modelo — não simplesmente descartada
+como ruído.
+
+É importante também não misturar duas comparações:
+
+- SLP e SLSQP usam as mesmas funções de restrição do RuFaS. O SLP troca o
+  solucionador por LPs linearizados; portanto, diferenças pequenas entre eles
+  podem vir da aproximação local, das tolerâncias e da convergência do SLSQP.
+- o modelo NRC clássico é outra formulação: ele usa as equações lineares do
+  `addon_rufas/nrc_lp.py`, incluindo simplificações documentadas, como TDN da
+  biblioteca sem o desconto de ingestão do NRC. Uma diferença entre NRC e SLP
+  pode ser uma diferença real de modelo, e não ruído.
+
 No modelo NRC, a tabela de margens também mostra o **preço-sombra** de cada
-restrição: quanto o custo sobe se a exigência subir 1 unidade.
+restrição. Ele é o multiplicador dual da restrição no LP e representa a
+variação marginal do custo ótimo quando o lado direito da exigência aumenta
+uma unidade, mantendo o restante do modelo e a base ótima inalterados. Assim,
+para uma exigência `b` e preço-sombra `p`, a interpretação local é:
+
+```text
+custo_otimo(b + Δb) - custo_otimo(b) ≈ p * Δb
+```
+
+Essa interpretação é local, não uma promessa para qualquer aumento. Ela deixa
+de valer exatamente quando muda a base ótima, outra restrição passa a ser
+limitante, um alimento atinge ou deixa um limite, ou o problema fica
+inviável. No código, o dual é lido do HiGHS através do PuLP. Para restrições
+expressas como percentual da matéria seca, o dual é multiplicado pelo DMI
+total, porque aumentar o limite em 1 ponto percentual altera o lado direito
+em proporção à quantidade total de matéria seca. O teste
+`tests/test_nrc_lp.py::test_shadow_price_is_the_marginal_cost` verifica essa
+interpretação comparando o preço-sombra com uma nova solução após aumentar a
+exigência.
 
 ### Cenários em JSON
 
@@ -220,10 +268,14 @@ Execute uma vez com cada opção e compare:
 - número de iterações;
 - margem das restrições.
 
-O SLP é determinístico porque o add-on define um ponto inicial determinístico.
-O `RationOptimizer` original do RuFaS usa um ponto inicial aleatório quando não
-existe uma ração anterior. Por isso, pequenas diferenças entre execuções do
-SLSQP podem ocorrer e fazem parte do comportamento original.
+O SLP é determinístico porque o add-on define um ponto inicial determinístico,
+e o `LinearRationOptimizer` não chama o gerador aleatório para construir esse
+ponto. O `RationOptimizer` original do RuFaS, ao contrário, usa um ponto
+inicial aleatório quando não existe uma ração anterior. Isso explica por que
+duas execuções do SLSQP podem ter trajetórias e resultados diferentes. Para
+comparar métodos, repita o SLSQP com várias sementes/execuções e informe a
+variação observada; não compare uma única execução aleatória com o resultado
+determinístico do SLP como se ambos tivessem recebido o mesmo ponto inicial.
 
 ## Preservação do RuFaS
 
@@ -306,50 +358,191 @@ dados da vaca
 
 ## Origem e linearidade das restrições
 
-As restrições abaixo são as que o método original do RuFaS (`RationOptimizer`)
-monta para a formulação. A coluna **Linearidade no RuFaS** descreve a função
-original, antes da substituição do SLSQP pelo SLP.
+Esta seção distingue duas coisas que são importantes para a avaliação:
 
-| Restrição | Função de origem no RuFaS | Linearidade no RuFaS | Explicação |
-|---|---|---|---|
-| Energia total | `NE_total_constraint` | Não linear | Calcula energia de manutenção, crescimento e lactação e aplica `max`; a oferta depende de energia digestível/metabolizável. |
-| Energia de manutenção e atividade | `NE_maintenance_and_activity_constraint` | Não linear | A exigência é fixa, mas a oferta passa pelas taxas de desconto e conversão de energia do RuFaS. |
-| Energia de lactação | `NE_lactation_constraint` | Não linear | Usa energia digestível e metabolizável, com conversões dependentes da composição e da ingestão. |
-| Energia de crescimento | `NE_growth_constraint` | Não linear | Usa a conversão de energia para crescimento sobre a energia metabolizável calculada para a ração. |
-| Energia líquida NASEM | `NASEM_net_energy_constraint` | Não linear | O desconto de ingestão e a energia metabolizável NASEM dependem da ração, do peso, do amido, do metano e do nitrogênio urinário. |
-| Cálcio | `calcium_constraint` | Linear | Soma, alimento a alimento, quantidade, teor de cálcio e digestibilidade fixa por tipo de alimento. |
-| Fósforo | `phosphorus_constraint` | Linear | Soma o fósforo digestível de cada alimento e compara com o maior requisito NASEM ou do processo. |
-| Proteína metabolizável mínima | `protein_constraint_lower` | Não linear | A produção de proteína microbiana usa `min` entre duas fontes e as taxas de passagem dependem da ingestão e da composição. |
-| Proteína metabolizável máxima | `protein_constraint_upper` | Não linear | Usa a mesma oferta não linear da proteína metabolizável, limitada por um fator do requisito inicial. |
-| FDN mínima | `NDF_constraint_lower` | Linear equivalente | A origem calcula uma proporção dividindo FDN pela matéria seca; como o limite é constante, é equivalente a `soma(FDN_i*x_i) - limite*soma(x_i) >= 0`. |
-| FDN máxima | `NDF_constraint_upper` | Linear equivalente | A proporção original pode ser multiplicada pela matéria seca positiva, resultando em uma desigualdade linear. |
-| FDN de forragem mínima | `forage_NDF_constraint` | Linear equivalente | Também é uma proporção da ração; o numerador é uma soma linear de FDN de forragem e o denominador é a matéria seca. |
-| Gordura máxima | `fat_constraint` | Linear equivalente | A porcentagem de gordura é uma razão entre duas somas; multiplicar pelo DMI transforma a condição em soma linear. |
-| Matéria seca mínima | `DMI_constraint_lower` | Linear | É diretamente a soma das quantidades dos alimentos menos o requisito mínimo ajustado. |
-| Matéria seca máxima | `DMI_constraint_upper` | Linear | É diretamente o limite máximo menos a soma das quantidades dos alimentos. |
+1. **a expressão implementada pela função original do RuFaS**; e
+2. **a forma que pode ser usada no LP**, depois de uma transformação algébrica
+   exata ou de uma aproximação local.
 
-### Como o SLP lineariza as restrições não lineares
+A variável de decisão é `x_i`, a quantidade em kg de matéria seca do alimento
+`i`. O RuFaS registra todas as restrições como desigualdades do SciPy no formato
+`g(x) >= 0`: uma restrição é atendida quando sua margem é não negativa. A lista
+exata de funções é montada em `RationOptimizer.set_constraints`, separada entre
+as listas NRC e NASEM.
 
-O `LinearRationOptimizer` não reimplementa as equações NASEM/NRC nem troca as
-funções do RuFaS. Em cada iteração, ele avalia cada restrição original
-`g(x)` no ponto atual `x` e calcula numericamente o jacobiano por diferenças
-finitas, usando `h = 1e-4 * max(1, x_i)`:
+| Restrição | Função de origem no RuFaS | Expressão original | Classificação da função original | Forma usada no LP |
+|---|---|---|---|---|
+| Energia total | `NE_total_constraint` | `max(oferta_manutencao, oferta_crescimento, oferta_lactacao) - requisito_total` | **Não linear** | Linearização local por diferenças finitas. |
+| Energia de manutenção e atividade | `NE_maintenance_and_activity_constraint` | `oferta_manutencao(x) - (requisito_manutencao + atividade)` | **Não linear** | Linearização local por diferenças finitas. |
+| Energia de lactação | `NE_lactation_constraint` | `oferta_lactacao(x) - (requisito_lactacao + gestacao)` | **Não linear** | Linearização local por diferenças finitas. |
+| Energia de crescimento | `NE_growth_constraint` | `oferta_crescimento(x) - requisito_crescimento` | **Não linear** | Linearização local por diferenças finitas. |
+| Energia líquida NASEM | `NASEM_net_energy_constraint` | `eficiência * energia_metabolizável_NASEM(x) - requisito_total` | **Não linear** | Linearização local por diferenças finitas. |
+| Cálcio | `calcium_constraint` | `soma(x_i * Ca_i * digestibilidade_i) - requisito_Ca` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
+| Fósforo | `phosphorus_constraint` | `soma(x_i * P_i * digestibilidade_i) - max(requisito_NASEM, requisito_processo)` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
+| Proteína metabolizável mínima | `protein_constraint_lower` | `oferta_proteina_metabolizavel(x) - requisito_proteina` | **Não linear** | Linearização local por diferenças finitas. |
+| Proteína metabolizável máxima | `protein_constraint_upper` | `fator_superior * requisito_inicial - oferta_proteina_metabolizavel(x)` | **Não linear** | Linearização local por diferenças finitas. |
+| FDN mínima | `NDF_constraint_lower` | `soma(x_i*NDF_i)/soma(x_i) - limite_minimo` | **Não linear como função escrita** | Transformação algébrica exata para `soma(x_i*NDF_i) - limite_minimo*soma(x_i) >= 0`, desde que DMI seja positivo. |
+| FDN máxima | `NDF_constraint_upper` | `limite_maximo - soma(x_i*NDF_i)/soma(x_i)` | **Não linear como função escrita** | Transformação algébrica exata para `limite_maximo*soma(x_i) - soma(x_i*NDF_i) >= 0`, desde que DMI seja positivo. |
+| FDN de forragem mínima | `forage_NDF_constraint` | `100*soma(x_i*FDN_foragem_i)/soma(x_i) - limite_minimo` | **Não linear como função escrita** | Transformação algébrica exata para uma soma linear, desde que DMI seja positivo. |
+| Gordura máxima | `fat_constraint` | `limite_gordura - soma(x_i*EE_i)/soma(x_i)` | **Não linear como função escrita** | Transformação algébrica exata para `limite_gordura*soma(x_i) - soma(x_i*EE_i) >= 0`, desde que DMI seja positivo. |
+| Matéria seca mínima | `DMI_constraint_lower` | `soma(x_i) - DMI_minimo` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
+| Matéria seca máxima | `DMI_constraint_upper` | `DMI_maximo - soma(x_i)` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
+
+### O que é realmente linear e o que não é
+
+As restrições de cálcio, fósforo e DMI são lineares tanto na função original
+quanto no LP. Para elas, cada alimento fornece um coeficiente fixo e a oferta é
+simplesmente o produto desse coeficiente por `x_i`, somado entre os alimentos.
+Os limites mínimo e máximo dos alimentos também são lineares e aparecem como
+`lower_i <= x_i <= upper_i`.
+
+FDN, FDN de forragem e gordura merecem uma observação mais cuidadosa. O código
+do RuFaS calcula suas porcentagens dividindo uma soma pelo DMI; portanto, a
+**função Python** contém uma divisão por `soma(x_i)` e não é linear. Entretanto,
+os limites são constantes e o DMI é positivo em uma ração válida. Multiplicar
+cada desigualdade pelo DMI não muda o seu sentido e elimina o denominador.
+Assim, a região viável dessas quatro restrições é exatamente representável por
+uma desigualdade linear. A tabela chama isso de “transformação algébrica
+exata”, e não de aproximação numérica. O SLP atual, contudo, mantém as funções
+originais do RuFaS e aplica o mecanismo geral de linearização a todas elas; ele
+não substitui essas quatro funções por versões reescritas manualmente.
+
+As restrições de energia e proteína são não lineares de fato. Exemplos da
+origem dessa não linearidade são:
+
+- o desconto de TDN/DE depende do TDN percentual e do DMI;
+- a energia de manutenção contém termos quadrático e cúbico da energia
+  metabolizável de cada alimento;
+- a energia de crescimento contém o quadrado da energia metabolizável;
+- a energia NASEM depende do DMI, do peso corporal e do amido total; ao
+  multiplicar esses valores pela quantidade dos alimentos aparecem produtos
+  entre variáveis;
+- a proteína metabolizável usa percentuais de concentrado, taxas de passagem
+  dependentes do DMI e do peso e `min(proteina_microbial_por_TDN,
+  proteina_microbial_por_RDP)`.
+
+### Linearização usada pelo SLP, passo a passo
+
+O `LinearRationOptimizer` herda do `RationOptimizer` a configuração, os limites,
+a lista de restrições e as próprias funções `fun`. Ele só intercepta a chamada
+ao `scipy.optimize.minimize`: em vez de executar SLSQP, usa os mesmos dados para
+resolver LPs com `scipy.optimize.linprog(method="highs")`. Nenhuma equação
+NASEM, NRC ou de suprimento nutricional é reescrita no add-on.
+
+Se `g_j(x) >= 0` é a restrição `j` e `x` é a ração atual, o método calcula
+primeiro o valor exato `g_j(x)` chamando a função original do RuFaS. Depois
+perturba uma variável por vez:
 
 ```text
-g(x + h*e_i) - g(x)
-J_i = --------------------
-           h
-g_linear(z) = g(x) + J * (z - x)
+h_i = 1e-4 * max(1, |x_i|)
+x^(i) = x + h_i * e_i
+J[j,i] = (g_j(x^(i)) - g_j(x)) / h_i
 ```
 
-O HiGHS resolve essa aproximação como um LP dentro de uma região de confiança.
-O ponto candidato é aceito somente quando reduz o custo com penalidade pelas
-violações; se não reduz, a região de confiança é reduzida à metade, e o processo
-se repete. Assim, as
-funções não lineares (`NE_*`, NASEM e proteína metabolizável) são aproximadas
-localmente, enquanto a avaliação final continua usando as funções originais do
-RuFaS. Há ainda uma etapa de restauração que reaplica as linearizações até que
-as restrições não lineares originais sejam satisfeitas.
+`J[j,i]` estima quanto a margem da restrição `j` muda quando a quantidade do
+alimento `i` aumenta 1 kg, mantendo os demais alimentos constantes. Isso é uma
+diferença finita para frente, não uma derivada simbólica. O conjunto de
+restrições usado pelo HiGHS é a expansão de primeira ordem:
+
+```text
+g_linear_j(z) = g_j(x) + J[j,:] * (z - x)
+```
+
+Como o LP espera desigualdades na forma `A_ub*z <= b_ub`, o código reorganiza
+`g_linear_j(z) >= margem` para:
+
+```text
+-J[j,:] * z <= g_j(x) - J[j,:] * x - margem
+```
+
+O vetor `z` ainda obedece aos limites dos alimentos e a uma região de
+confiança:
+
+```text
+max(lower_i, x_i - trust) <= z_i <= min(upper_i, x_i + trust)
+```
+
+Essa região impede que a aproximação de primeira ordem seja usada muito longe
+do ponto em que foi calculada. O tamanho inicial é o DMI atual, limitado
+inferiormente a 1 kg. O LP minimiza o custo da dieta `preco @ z`, que é linear
+porque preço e quantidade aparecem apenas como soma `soma(preco_i*z_i)`.
+
+#### Quando a primeira linearização é inviável
+
+Uma linearização local pode ser inviável mesmo quando a função não linear
+original possui uma solução viável mais distante. Por isso, `_linear_step`
+tenta primeiro o LP dentro da região de confiança e depois tenta novamente sem
+essa restrição de distância, mas ainda respeitando os limites dos alimentos.
+Se continuar inviável, executa uma fase 1: cria uma variável de folga `s_j >= 0`
+para cada restrição e resolve:
+
+```text
+minimizar soma(s_j)
+sujeito a -J*z - s <= g(x) - J*x - margem
+```
+
+Essa fase não é a solução econômica final. Ela procura o ponto que reduz o
+máximo possível da violação linearizada, permitindo que a próxima iteração
+comece de uma aproximação mais útil.
+
+#### Aceitação do passo e penalidade
+
+O candidato não é aceito apenas porque satisfaz o LP aproximado. O código
+reavalia as funções originais e calcula a função mérito:
+
+```text
+merito(x) = preco @ x
+          + penalidade * soma(max(-g_j(x), 0))
+```
+
+O candidato é aceito somente se reduzir essa função além da tolerância
+numérica. A penalidade começa em 1 e é atualizada a partir dos maiores valores
+absolutos dos duais do LP, multiplicados por 2. Se o candidato não melhorar o
+mérito, a região de confiança é dividida por 2 e o LP é tentado novamente em
+uma região menor. O processo para quando o passo é menor que a tolerância de
+passo ou quando atinge 40 iterações.
+
+#### Restauração e verificação final
+
+Depois das iterações econômicas, `_restore_feasibility` avalia novamente as
+funções não lineares originais. Para cada rodada, mede
+`max(-g_j(x), 0)` e chama o mesmo LP linearizado, mas aumenta a margem exigida
+para `2*violacao + 1e-7`. São permitidas até 10 rodadas. Finalmente, o sucesso
+não é inferido da aproximação: o código só retorna `success=True` se todas as
+funções originais do RuFaS, avaliadas no ponto final, forem maiores ou iguais a
+zero. Portanto, o LP guia a busca, mas a viabilidade reportada é verificada no
+modelo original.
+
+## Origem dos nomes dos alimentos
+
+Os nomes exibidos na interface não são inventados pelo add-on nem vêm do ID.
+Eles são lidos da coluna `Name` da biblioteca NASEM do RuFaS:
+
+```text
+RufSas/RuFaS/input/data/feed/NASEM_Comp_with_TDN.csv
+```
+
+O carregamento ocorre em `addon_rufas.web._feed_config`:
+
+1. `csv.DictReader` lê todas as linhas do CSV e usa a primeira linha como
+   cabeçalho;
+2. cada coluna vira uma lista, e a coluna `rufas_id` é convertida para
+   inteiros;
+3. a biblioteca é indexada pelo `rufas_id`;
+4. o add-on passa essa biblioteca para o `AvailableFeedsBuilder` original do
+   RuFaS, que cria os objetos `Feed`/`NASEMFeed` com composição, categoria,
+   limites e custos;
+5. separadamente, o add-on cria
+   `FEED_NAMES = dict(zip(library["rufas_id"], library["Name"]))`;
+6. ao preparar a página, cada alimento procura seu nome por ID:
+   `FEED_NAMES.get(feed.rufas_id, f"Feed {feed.rufas_id}")`.
+
+O arquivo `example_Midwest_feed.json` não fornece os nomes. Ele fornece quais
+IDs estão inicialmente configurados na fazenda, além de custos e limites. Por
+isso, a interface consegue mostrar a biblioteca completa de alimentos NASEM,
+mas começa com os IDs configurados nesse JSON selecionados. A busca também
+usa esse mesmo cadastro: procura pelo nome da coluna `Name`, pelo ID e pela
+categoria carregada no objeto `Feed`.
 
 ## Exemplo final: executar o código
 

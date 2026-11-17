@@ -155,7 +155,10 @@
       <summary>Análise de sensibilidade</summary>
       <p class="muted">Varia um item e formula de novo, com o otimizador escolhido acima: mostra quais alimentos entraram, saíram,
         aumentaram ou diminuíram, o impacto no custo e no IOFC, o custo marginal e as restrições que limitam a solução.
-        Prefira o SLP: o SLSQP parte de um ponto aleatório, e parte da diferença pode ser ruído.</p>
+        Prefira o SLP ou o modelo NRC. O SLSQP do RuFaS usa um ponto inicial
+        aleatório quando não há ração anterior; isso pode mudar sua trajetória
+        numérica. Diferenças entre SLP e SLSQP devem ser separadas de diferenças
+        reais do modelo NRC, que usa outra formulação.</p>
       <div class="fields">
         <label>Item a variar
           <select name="sens_param">
