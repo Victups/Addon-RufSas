@@ -324,6 +324,8 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 
 O LP nunca custa mais que o SLSQP e chega a ~2% menos onde o SLSQP para em ótimo local. O custo do SLSQP muda entre execuções (chute inicial aleatório, ponto fraco 1); o do LP é idêntico (teste de determinismo). Se a exigência é impossível, o LP devolve `success = False`.
 
+**Com 100 sementes do SLSQP** (`tests/benchmark_seeds.py`): o LP empata com o **melhor** SLSQP em 5 dos 6 casos e fica 0,65% abaixo de todas as 100 execuções no NASEM ×1,2. Contra a média do SLSQP, ele é de 0 a 1,3% mais barato. O SLSQP varia até 3% entre sementes. Tabela completa na seção 5 de [`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md).
+
 ### Fazenda de exemplo, 39 formulações pareadas (mesmo problema nos dois)
 
 | Grupo | LP mais barato | LP mais caro (>0,1%) | Economia média | Velocidade (SLSQP/LP) |

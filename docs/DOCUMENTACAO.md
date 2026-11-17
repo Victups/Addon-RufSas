@@ -154,6 +154,25 @@ Com o SLSQP, parte da diferença entre duas formulações pode ser ruído do pon
 
 O SLP **nunca custou mais** que o SLSQP. Ele é **determinístico** e **2 a 3 vezes mais rápido**, e achou ração viável em 100% dos casos. A economia em dinheiro só tem sentido com **preços reais** (CEPEA, seção 7) e as fazendas do professor, porque os preços de exemplo são genéricos.
 
+**Contra o melhor SLSQP.** O SLSQP do RuFaS parte de um ponto sorteado (`random.random() * 10` por alimento). Por isso, comparar com uma única execução dele pode favorecer o SLP por sorte. Em `tests/benchmark_seeds.py`, o SLSQP roda com as sementes 0 a 99 em cada caso de teste, e o SLP roda uma vez:
+
+| Caso | SLP | Melhor SLSQP | Média SLSQP | Pior SLSQP | SLP × melhor | SLP × média | ms SLP | ms SLSQP |
+|---|---|---|---|---|---|---|---|---|
+| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 20 | 84 |
+| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 17 | 85 |
+| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | **−0,65%** | −0,92% | 81 | 86 |
+| NRC ×0,8 | 0,2696 | 0,2696 | 0,2696 | 0,2696 | 0,00% | 0,00% | 7 | 63 |
+| NRC ×1,0 | 0,2911 | 0,2911 | 0,2949 | 0,2978 | 0,00% | −1,28% | 16 | 53 |
+| NRC ×1,2 | 0,3546 | 0,3546 | 0,3581 | 0,3652 | 0,00% | −0,97% | 12 | 72 |
+
+O SLSQP não falhou em nenhuma das 600 execuções. Os dados mostram quatro coisas:
+- O SLP **empata com o melhor de 100 SLSQPs** em 5 dos 6 casos.
+- No NASEM ×1,2, o SLP é **0,65% mais barato do que todas as 100 execuções**. Nesse caso, o SLSQP para num ótimo local qualquer que seja o ponto de partida.
+- Contra uma execução típica do SLSQP (a média), o SLP é de 0 a 1,3% mais barato. Entre o melhor e o pior ponto de partida, o próprio SLSQP varia até 3% (NRC ×1,2: de 0,3546 a 0,3652).
+- O SLP leva de 7 a 20 ms, contra 53 a 86 ms de uma execução do SLSQP. A exceção é o NASEM ×1,2, em que o SLP usa 24 iterações e o tempo empata. Para igualar o SLP, o SLSQP precisaria de várias execuções, e o tempo dele se multiplica.
+
+Para reproduzir: `.venv\Scripts\python tests\benchmark_seeds.py 100`.
+
 ## 6. Interface
 
 Flask local, aberta com `.venv\Scripts\python -m addon_rufas.web` em `http://127.0.0.1:5000`. O passo a passo de uso está no [README](../README.md). Recursos:
