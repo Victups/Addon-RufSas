@@ -7,17 +7,18 @@ from pathlib import Path
 from statistics import mean
 
 
-def load(results_dir: Path) -> list[dict]:
-    """All logged formulation records."""
+def load(results_dir: Path, pattern: str = "formulations_*.jsonl") -> list[dict]:
+    """All logged records of one kind (formulations or pen events)."""
     return [
         json.loads(line)
-        for path in sorted(results_dir.rglob("formulations_*.jsonl"))  # results/ or one run's folder
+        for path in sorted(results_dir.rglob(pattern))  # results/ or one run's folder
         for line in path.read_text(encoding="utf-8").splitlines()
     ]
 
 
 def main() -> None:
-    records = load(Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "results")
+    results_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parents[1] / "results"
+    records = load(results_dir)
     groups: dict[tuple[str, str], list[dict]] = defaultdict(list)
     pairs: dict[str, list[tuple[dict, dict]]] = defaultdict(list)
     for record in records:
@@ -45,6 +46,20 @@ def main() -> None:
             print(
                 f"{group:10} {len(both):4d} {sum(s > 0.1 for s in saving):11d} {sum(s < -0.1 for s in saving):16d} "
                 f"{mean(saving):14.2f} {mean(sl['seconds'] for _, sl in both) / mean(lp['seconds'] for lp, _ in both):10.1f}"
+            )
+
+    events = load(results_dir, "events_*.jsonl")
+    if events:
+        print("\nRation reformulation events (retries, milk cuts and fallbacks of the driving optimizer):")
+        print(f"{'optimizer':10} {'group':10} {'events':>7} {'attempts':>9} {'retried %':>10} {'milk cuts':>10} {'fallback %':>11}")
+        by_group: dict[tuple[str, str], list[dict]] = defaultdict(list)
+        for event in events:
+            by_group[(event["optimizer"], event["animal_combination"])].append(event)
+        for (optimizer, group), rows in sorted(by_group.items(), key=lambda item: (item[0][1], item[0][0])):
+            print(
+                f"{optimizer:10} {group:10} {len(rows):7d} {mean(r['attempts'] for r in rows):9.2f} "
+                f"{100 * mean(r['attempts'] > 1 for r in rows):10.1f} {sum(r['milk_reductions'] for r in rows):10d} "
+                f"{100 * mean(r['fallback'] is not None for r in rows):11.1f}"
             )
 
 

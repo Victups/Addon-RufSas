@@ -53,3 +53,50 @@ def record_formulations(
         return solution, ration_config
 
     optimizer_class.attempt_optimization = timed
+
+
+def record_ration_events(pen_class: type, path: Path, name: str) -> None:
+    """
+    Appends one JSON line per ration reformulation of a pen (`Pen._run_formulation_attempts`) to `path`: how many
+    optimizer attempts it took, how many times RuFaS cut the pen's milk production to make the ration feasible, and
+    whether it ended in a fallback (the user-defined or the previous ration) instead of a formulated one.
+
+    These are the hidden costs of a failed formulation, which the per-call log above does not show.
+    """
+    run_attempts = pen_class._run_formulation_attempts
+    attempt = pen_class._attempt_formulation
+    reduce_milk = pen_class.reduce_milk_production
+    path.parent.mkdir(parents=True, exist_ok=True)
+    log = open(path, "a", encoding="utf-8")
+
+    @functools.wraps(attempt)
+    def counted_attempt(self: Any, *args: Any, **kwargs: Any) -> Any:
+        self._addon_event["attempts"] += 1
+        return attempt(self, *args, **kwargs)
+
+    @functools.wraps(reduce_milk)
+    def counted_reduction(self: Any, *args: Any, **kwargs: Any) -> Any:
+        if hasattr(self, "_addon_event"):
+            self._addon_event["milk_reductions"] += 1
+        return reduce_milk(self, *args, **kwargs)
+
+    @functools.wraps(run_attempts)
+    def recorded(self: Any, is_ration_defined_by_user: bool, *args: Any, **kwargs: Any) -> Any:
+        self._addon_event = {"attempts": 0, "milk_reductions": 0}
+        record = {"optimizer": name, "animal_combination": self.animal_combination.name}
+        try:
+            solution = run_attempts(self, is_ration_defined_by_user, *args, **kwargs)
+        except Exception as error:  # RuFaS raises when milk cannot be reduced any further
+            record.update(self._addon_event, success=False, fallback=f"error: {error}")
+            raise
+        else:
+            fallback = None if solution.success else ("user_defined" if is_ration_defined_by_user else "previous_ration")
+            record.update(self._addon_event, success=bool(solution.success), fallback=fallback)
+            return solution
+        finally:
+            log.write(json.dumps(record) + "\n")
+            log.flush()
+
+    pen_class._attempt_formulation = counted_attempt
+    pen_class.reduce_milk_production = counted_reduction
+    pen_class._run_formulation_attempts = recorded

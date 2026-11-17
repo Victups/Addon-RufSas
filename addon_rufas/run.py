@@ -28,10 +28,12 @@ def install(optimizer: str, output_dir: Path) -> None:
         sys.path.insert(0, str(RUFAS_DIR))
     from RUFAS.biophysical.animal import pen
     from RUFAS.biophysical.animal.ration.ration_optimizer import RationOptimizer
-    from addon_rufas.instrument import record_formulations
+    from addon_rufas.instrument import record_formulations, record_ration_events
     from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
 
     log_path = output_dir / f"formulations_{os.getpid()}.jsonl"
+    # Pen-level events (retries, milk cuts, fallbacks) are logged under the optimizer that drives the simulation.
+    record_ration_events(pen.Pen, output_dir / f"events_{os.getpid()}.jsonl", "slsqp" if optimizer == "slsqp" else "lp")
     if optimizer == "slsqp":
         record_formulations(RationOptimizer, log_path, "slsqp")
         return
