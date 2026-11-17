@@ -52,3 +52,22 @@ def test_infeasible_model_says_what_is_missing(feeds):
     assert "Zinco" in result.missing  # trace minerals only come from the premix
     assert any(w.startswith("Vitamina D: nenhum alimento") for w in result.warnings)  # no data: skipped, not infeasible
     assert sum(result.x) == 0  # no meaningless ration when infeasible
+
+
+def test_ranging_matches_resolving(feeds):
+    base = nrc_lp.solve(feeds, REQUIREMENTS)
+    # cost ranging: inside the corn price range the ration is the same, just outside it changes
+    high = base.feed_ranges[0]["price_high"]
+    for factor, same in ((0.99, True), (1.01, False)):
+        priced = [dict(f) for f in feeds]
+        priced[0]["cost"] = high * factor
+        again = nrc_lp.solve(priced, REQUIREMENTS)
+        assert all(abs(a - b) < 1e-6 for a, b in zip(again.x, base.x)) is same
+    # RHS ranging: inside the energy range the shadow price is the exact marginal cost
+    energy = next(row for row in base.constraints if row["name"] == "Energia líquida de lactação")
+    target = energy["valid_high"] - 0.01
+    moved = nrc_lp.solve(feeds, {**REQUIREMENTS, "energy": target})
+    assert moved.cost - base.cost == pytest.approx((target - REQUIREMENTS["energy"]) * energy["shadow_price"], rel=1e-6)
+    # an excluded feed's reduced cost is its price minus the lowest price at which it would enter
+    out = next(i for i, a in enumerate(base.x) if a < 1e-9)
+    assert base.feed_ranges[out]["reduced_cost"] == pytest.approx(feeds[out]["cost"] - base.feed_ranges[out]["price_low"])

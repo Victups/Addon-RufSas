@@ -41,6 +41,15 @@ TRACE_MINERALS = {
 }
 VITAMINS = {"Vit_A": "Vitamina A", "Vit_D": "Vitamina D", "Vit_E": "Vitamina E"}
 
+# Rows written as a share of DM, sum((v - r) x) >= 0, and the requirement key r comes from.
+_PER_DM_KEYS = {
+    "FDN (mínimo)": "ndf_min",
+    "FDN (máximo)": "ndf_max",
+    "FDN de forragem (mínimo)": "forage_ndf_min",
+    "Gordura (máximo)": "fat_max",
+    **{label: column for group in (MACRO_MINERALS, TRACE_MINERALS) for column, label in group.items()},
+}
+
 # Defaults: NDF, forage NDF and fat limits are the RuFaS ones, so the comparison is fair; minerals come from
 # NRC 2001 Table 14-7 (680 kg cow, 35 kg milk); vitamins from NRC 2001 ch. 7 (IU per kg body weight).
 NRC_DEFAULTS: dict[str, float] = {
@@ -77,6 +86,8 @@ class NRCResult:
     supply: dict[str, float] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     missing: list[str] = field(default_factory=list)  # rows the elastic LP had to relax when infeasible
+    # Per feed: reduced cost and the price range in which the ration stays optimal (classic LP cost ranging).
+    feed_ranges: list[dict[str, float]] = field(default_factory=list)
 
 
 def _num(value: Any) -> float:
@@ -198,16 +209,34 @@ def solve(feeds: Sequence[Mapping[str, Any]], requirements: Mapping[str, float])
             )
             result.missing.append(name)
     total_dm = sum(amounts)
+    # Classic LP sensitivity from HiGHS: the right-hand-side range in which each shadow price holds, and the cost
+    # range in which the ration stays optimal. HiGHS keeps PuLP's insertion order for columns and rows.
+    ranging = model.solverModel.getRanging()[1] if optimal else None
     # PuLP 4 keeps the solved constraints (with values and duals) on the problem, in insertion order.
-    for (name, (_, unit, per_dm)), constraint in zip(rows.items(), model.constraints()):
+    for index, ((name, (_, unit, per_dm)), constraint) in enumerate(zip(rows.items(), model.constraints())):
         value = float(constraint.value() or 0.0)  # lhs - rhs
         margin = -value if constraint.sense == pulp.LpConstraintLE else value
         scale = max(1.0, abs(constraint.constant), sum(abs(c) * (v.value() or 0.0) for v, c in constraint.items()))
         dual = float(constraint.pi or 0.0) if optimal else 0.0
         shadow_price = abs(dual) * (total_dm if per_dm else 1.0)
-        result.constraints.append(
-            {"name": name, "slack": margin, "scale": scale, "unit": unit, "shadow_price": shadow_price}
-        )
+        row = {"name": name, "slack": margin, "scale": scale, "unit": unit, "shadow_price": shadow_price}
+        if ranging is not None:
+            # A per_dm row is sum((v - r) x) >= b with b = 0, and raising r by d is b = d * DM: r + b / DM.
+            requirement = req[_PER_DM_KEYS[name]] if per_dm else -float(constraint.constant)
+            low, high = ranging.row_bound_dn.value_[index], ranging.row_bound_up.value_[index]
+            if per_dm and total_dm:
+                low, high = requirement + low / total_dm, requirement + high / total_dm
+            row.update(requirement=requirement, valid_low=min(low, high), valid_high=max(low, high))
+        result.constraints.append(row)
+    if ranging is not None:
+        for index, (f, xi) in enumerate(zip(feeds, x)):
+            result.feed_ranges.append(
+                {
+                    "reduced_cost": float(xi.dj or 0.0),
+                    "price_low": float(ranging.col_cost_dn.value_[index]),
+                    "price_high": float(ranging.col_cost_up.value_[index]),
+                }
+            )
     result.supply = {
         "NEL (Mcal)": sum(a * v for a, v in zip(amounts, nel)),
         "PDR (g)": sum(a * v for a, v in zip(amounts, rdp)),

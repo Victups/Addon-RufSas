@@ -127,6 +127,7 @@ def test_pulp_model_in_the_page_reports_shadow_prices():
     selected = ",".join(str(i) for i in sorted(web.DEFAULT_SELECTED_IDS | {300}))
     page = post(optimizer="pulp", selected_feeds=selected)
     assert "<h2>Viável</h2>" in page and "Preço-sombra" in page
+    assert "Vale entre" in page and "Custo reduzido e faixa de preço" in page and "não entraria nem de graça" in html.unescape(page)
     infeasible = html.unescape(post(optimizer="pulp"))  # the Midwest farm has no vitamin premix
     assert "Vitamina A: falta" in infeasible and "VitTM Premix, generic (300)" in infeasible
 

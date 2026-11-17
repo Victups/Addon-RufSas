@@ -422,6 +422,19 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     }
 
 
+def _price_reading(amount: float, price: float, ranges: Mapping[str, float]) -> str:
+    """One line on what a feed's cost ranging means for the decision."""
+    if amount <= NEGLIGIBLE:
+        if ranges["price_low"] < 0:
+            return "Fora da dieta; não entraria nem de graça (as exigências já estão atendidas mais barato)."
+        return f"Fora da dieta; entra se o preço cair abaixo de {ranges['price_low']:.4g}."
+    if ranges["price_high"] >= 1e30:
+        return "Na dieta; continua na mesma quantidade mesmo se o preço subir."
+    if ranges["price_low"] <= 0:
+        return f"Na dieta; a ração muda se o preço passar de {ranges['price_high']:.4g}."
+    return f"Na dieta; a ração muda se o preço passar de {ranges['price_high']:.4g} ou cair abaixo de {ranges['price_low']:.4g}."
+
+
 def _simulate_nrc(
     form: Mapping[str, str],
     feeds: list[Feed],
@@ -483,6 +496,16 @@ def _simulate_nrc(
             if amount > 1e-7
         ],
         "constraints": nrc.constraints,
+        "feed_ranges": [
+            {
+                **ranges,
+                "name": FEED_NAMES.get(feed.rufas_id, f"Feed {feed.rufas_id}"),
+                "amount": amount,
+                "price": feed.purchase_cost,
+                "reading": _price_reading(amount, feed.purchase_cost, ranges),
+            }
+            for feed, amount, ranges in zip(feeds, nrc.x, nrc.feed_ranges)
+        ],
         "warnings": nrc.warnings,
         "supply": nrc.supply,
         "milk_revenue": milk_revenue,

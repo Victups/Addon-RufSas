@@ -210,10 +210,20 @@
     {% endif %}
     <h3>Margem das restrições</h3>
     <p class="muted">Margem >= 0 significa que a restrição foi atendida.
-      {% if result.supply %}O preço-sombra é quanto o custo sobe se a exigência subir 1 unidade (zero se a restrição tem folga).{% endif %}</p>
-    <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th>{% if result.supply %}<th>Preço-sombra</th>{% endif %}</tr></thead>
-      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td>{% if result.supply %}<td>{{ '%.6g'|format(row.shadow_price) }} / {{ row.unit }}</td>{% endif %}</tr>{% endfor %}</tbody>
+      {% if result.supply %}O preço-sombra é quanto o custo sobe se a exigência subir 1 unidade (zero se a restrição tem folga).
+        Ele só vale enquanto a exigência fica na faixa "vale entre"; fora dela, a base da solução muda e o preço-sombra também.{% endif %}</p>
+    <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th>{% if result.supply %}<th>Preço-sombra</th><th>Exigência</th><th>Vale entre</th>{% endif %}</tr></thead>
+      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td>{% if result.supply %}<td>{{ '%.6g'|format(row.shadow_price) }} / {{ row.unit }}</td><td>{{ '%.4g'|format(row.requirement) if row.requirement is defined else '—' }}</td><td>{% if row.valid_low is defined %}{{ '%.4g'|format(row.valid_low) if row.valid_low > -1e30 else '−∞' }} a {{ '%.4g'|format(row.valid_high) if row.valid_high < 1e30 else '+∞' }}{% else %}—{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody>
     </table>
+    {% if result.feed_ranges %}
+      <h3>Custo reduzido e faixa de preço dos alimentos</h3>
+      <p class="muted">Faixa de preço em que a ração atual continua ótima. Para um alimento fora da dieta, o custo reduzido é quanto o preço
+        precisa cair para ele entrar.</p>
+      <table><thead><tr><th>Alimento</th><th>Na dieta (kg MS)</th><th>Preço</th><th>Custo reduzido</th><th>Ração ótima com preço entre</th><th>Leitura</th></tr></thead>
+        <tbody>{% for f in result.feed_ranges %}<tr><td>{{ f.name }}</td><td>{{ '%.3f'|format(f.amount) }}</td><td>{{ '%.4g'|format(f.price) }}</td><td>{{ '%.4g'|format(f.reduced_cost) }}</td>
+          <td>{{ '%.4g'|format(f.price_low) if f.price_low > -1e30 else '−∞' }} a {{ '%.4g'|format(f.price_high) if f.price_high < 1e30 else '+∞' }}</td><td>{{ f.reading }}</td></tr>{% endfor %}</tbody>
+      </table>
+    {% endif %}
   </details>
   {% endif %}
 </main>
