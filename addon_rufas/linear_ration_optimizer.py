@@ -30,6 +30,7 @@ class LinearRationOptimizer(RationOptimizer):
     """
 
     MAX_ITERATIONS = 40
+    EXTRA_STARTS = 2
     FINITE_DIFFERENCE_STEP = 1e-4  # kg, relative to max(1, x_i)
     CONSTRAINT_MARGIN = 1e-7
     RESTORATION_PASSES = 10
@@ -65,6 +66,29 @@ class LinearRationOptimizer(RationOptimizer):
             return super().attempt_optimization(*args, **kwargs)
 
     def _solve(
+        self,
+        initial_decision_vector: np.ndarray[tuple[int, ...], np.dtype],
+        bounds: list[tuple[float, float]],
+        constraints: Sequence[dict[str, Any]],
+        ration_config: RationConfig,
+    ) -> OptimizeResult:
+        """
+        SLP from the given start and from `EXTRA_STARTS` seeded random starts; returns the cheapest feasible ration.
+
+        Energy and MP make the problem nonconvex, so one start can stop at a worse local optimum (seen up to +10% with
+        Brazilian prices). The seed is fixed, so the result stays deterministic.
+        """
+        lower, upper = np.array(bounds, dtype=float).T
+        cap = np.minimum(upper, max(float(ration_config.initial_dry_matter_requirement), 1.0))
+        rng = np.random.default_rng(0)
+        starts = [np.asarray(initial_decision_vector, dtype=float)]
+        starts += [lower + rng.random(len(lower)) * np.maximum(cap - lower, 0.0) for _ in range(self.EXTRA_STARTS)]
+        results = [self._solve_from(start, bounds, constraints, ration_config) for start in starts]
+        best = min(results, key=lambda result: (not result.success, result.fun))
+        best.nit = sum(result.nit for result in results)
+        return best
+
+    def _solve_from(
         self,
         initial_decision_vector: np.ndarray[tuple[int, ...], np.dtype],
         bounds: list[tuple[float, float]],

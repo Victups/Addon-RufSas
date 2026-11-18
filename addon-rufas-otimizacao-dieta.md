@@ -259,12 +259,12 @@ Comparar o custo da dieta do **baseline (SLSQP)** com o da **PL**, nos mesmos an
 
 1. **Setup:** ambiente Python (`.venv` na raiz), rodar o RuFaS de exemplo, entender saídas. ✅
 2. **Modelagem:** formulação da PL e linearização das restrições NASEM/NRC (SLP sobre as funções do RuFaS). ✅
-3. **Instrumentar o baseline:** registrar tempo, iterações, sucesso, DMI e custo por formulação (`addon_rufas/instrument.py`). ✅ Faltam re-tentativas e fallback.
+3. **Instrumentar o baseline:** registrar tempo, iterações, sucesso, DMI e custo por formulação (`addon_rufas/instrument.py`), inclusive re-tentativas, cortes de leite e fallback. ✅
 4. **Artefato:** `LinearRationOptimizer`, validado contra o SLSQP em problemas com alimentos reais da biblioteca NASEM/NRC (`tests/`). ✅
 5. **Integração:** runner que injeta o otimizador no RuFaS sem editá-lo. ✅
-6. **Preços CEPEA** (M6). ⏳ O procedimento de coleta e conversão está pronto ([`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md), seção 7). Faltam baixar as séries e preencher os preços.
-7. **Bateria de experimentos:** baseline × PL nas fazendas fornecidas pelo professor. ⏳ (aguardando as fazendas)
-8. **Análise comparativa e econômica, e relatório.** ⏳ O IOFC e a comparação pareada estão prontos; falta rodar com preços reais.
+6. **Preços CEPEA** (M6). ✅ Leite e milho do CEPEA, preços de Goiás e a planilha da turma convertida para R$/kg MS (`scenarios/precos/`). Sem notas fiscais; premix provisório.
+7. **Bateria de experimentos:** baseline × PL. ✅ O professor não vai enviar fazendas; foram usadas 8 fazendas montadas com os exemplos do RuFaS e preços brasileiros (`scenarios/fazendas/`), com 312 formulações pareadas.
+8. **Análise comparativa e econômica, e relatório.** ✅ [`docs/RELATORIO.md`](docs/RELATORIO.md), com sensibilidade a ±10% e ±20% nos preços.
 9. **Modelo NRC clássico em PuLP** (R5, R8): `addon_rufas/nrc_lp.py`, com preços-sombra e diagnóstico de inviabilidade. ✅
 10. **Análise de sensibilidade** (R3) e **interface** (R6): `addon_rufas/web.py`. ✅
 11. **Documentação** (R7): [`docs/DOCUMENTACAO.md`](docs/DOCUMENTACAO.md) e [`README.md`](README.md). ✅
@@ -337,7 +337,7 @@ O LP nunca custa mais que o SLSQP e chega a ~2% menos onde o SLSQP para em ótim
 Sucesso: 100% nos dois. Iterações: LP ~3, SLSQP 5 a 8.
 
 ### Ressalvas
-- Os preços do exemplo são genéricos (0,01 a 1,0 por kg), então o **ganho econômico real só aparece com os preços CEPEA** e as fazendas do professor. Os números acima validam a correção e a velocidade, não a economia.
+- Os preços do exemplo são genéricos (0,01 a 1,0 por kg). O resultado com preços brasileiros, em 8 fazendas, está em [`scenarios/fazendas/README.md`](scenarios/fazendas/README.md). Ali apareceu um ótimo local com uma partida só (+10% numa formulação), e por isso o SLP agora usa 3 partidas.
 - Para restrições não lineares (energia, proteína) o SLP converge a um ótimo **local**, não global; a garantia de ótimo global vale para a parte linear.
 - Quando o problema é inviável, o SLP reporta falha, mas não devolve o ponto "mais próximo de viável". O modelo NRC em PuLP já tem esse diagnóstico: um PL elástico que diz quanto falta de cada nutriente.
-- Ainda não medidos: re-tentativas e fallback do baseline, que a análise comparativa final precisa incluir.
+- Re-tentativas e fallback medidos: nenhum evento nas 8 fazendas.

@@ -6,7 +6,7 @@ otimizadores para o mesmo problema de formulação:
 | Otimizador | O que é |
 |---|---|
 | **SLSQP** | O original do RuFaS (`RationOptimizer`), a linha de base. |
-| **SLP** | `addon_rufas/linear_ration_optimizer.py`: programação linear sequencial com HiGHS sobre as próprias restrições do RuFaS. Substitui o SLSQP dentro da simulação. É determinístico, nunca ficou mais caro e é 2 a 3 vezes mais rápido. |
+| **SLP** | `addon_rufas/linear_ration_optimizer.py`: programação linear sequencial com HiGHS sobre as próprias restrições do RuFaS. Substitui o SLSQP dentro da simulação. É determinístico (3 partidas com semente fixa) e nunca ficou mais caro em 312 formulações de 8 fazendas com preços brasileiros. |
 | **NRC clássico (PuLP)** | `addon_rufas/nrc_lp.py`: PL linear do NRC 2001 com energia, PDR, PNDR, proteína metabolizável, FDN, minerais e vitaminas, e preços-sombra. |
 
 O RuFaS **não é editado**: o add-on se liga a ele por subclasse e troca do
@@ -59,6 +59,15 @@ Abra `http://127.0.0.1:5000`. Testes: `.venv\Scripts\python -m pytest`.
 e o SLSQP resolve o mesmo problema em sombra a cada formulação, o que dá pares
 comparáveis. Para usar outra fazenda, troque o `-p`. Preços reais: veja a seção 7
 da [documentação](docs/DOCUMENTACAO.md#7-preços-reais-cepea).
+
+**Fazendas de teste com preços brasileiros:** [`scenarios/fazendas/`](scenarios/fazendas/README.md).
+São 8 fazendas montadas com os exemplos do RuFaS: rebanhos free-stall (100 vacas)
+e open lot (1.000 vacas), cada um com as 4 listas regionais de alimentos.
+`gerar.py` monta as pastas com os preços da planilha. O README da pasta tem os
+comandos e os resultados: 312 formulações pareadas, com o SLP nunca mais caro.
+
+**Sensibilidade a ±10% e ±20% nos preços:** [`scenarios/precos/sensibilidade.md`](scenarios/precos/sensibilidade.md),
+gerado por `scenarios/precos/sensibilidade.py`.
 
 ## Interface web
 
@@ -273,8 +282,11 @@ Execute uma vez com cada opção e compare:
 - margem das restrições.
 
 O SLP é determinístico porque o add-on define um ponto inicial determinístico,
-e o `LinearRationOptimizer` não chama o gerador aleatório para construir esse
-ponto. O `RationOptimizer` original do RuFaS, ao contrário, usa um ponto
+e o `LinearRationOptimizer` não chama o gerador aleatório do Python para construir
+esse ponto. Ele também parte de mais 2 pontos sorteados com semente fixa
+(`numpy.random.default_rng(0)`) e fica com a ração viável mais barata. O problema
+não é convexo, e com uma partida só o SLP chegou a ficar 10% mais caro numa
+formulação com preços brasileiros. O `RationOptimizer` original do RuFaS, ao contrário, usa um ponto
 inicial aleatório quando não existe uma ração anterior. Isso explica por que
 duas execuções do SLSQP podem ter trajetórias e resultados diferentes. Para
 comparar métodos, repita o SLSQP com várias sementes/execuções e informe a

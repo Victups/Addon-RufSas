@@ -1,0 +1,11 @@
+{
+  "files": {
+    "tasks": {
+      "title": "Task manager data",
+      "description": "Fazenda de teste.",
+      "path": "../../scenarios/fazendas/openlot-intermountain/tasks.json",
+      "type": "json",
+      "properties": "tasks_properties"
+    }
+  }
+}

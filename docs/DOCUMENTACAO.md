@@ -70,7 +70,7 @@ O SLP resolve esse mesmo modelo assim:
 4. Quando o PL linearizado é inviável, porque a linearização ficou ruim no ponto, dá um **passo de fase 1** que minimiza a violação, em vez de desistir.
 5. No fim, uma **restauração** reaperta as restrições violadas até a ração atender ao modelo **não linear** verdadeiro, que é o que o RuFaS confere.
 
-O ponto inicial é determinístico, então a mesma entrada sempre dá a mesma ração.
+**Várias partidas.** Energia e proteína metabolizável tornam o problema não convexo, e uma única partida pode parar num ótimo local pior. Com preços brasileiros, isso deixou o SLP 10% mais caro numa formulação (seção 5). Por isso o SLP roda a partir do ponto inicial do RuFaS e de mais 2 pontos sorteados com semente fixa (`EXTRA_STARTS`), e fica com a ração viável mais barata. A semente é fixa, então a mesma entrada sempre dá a mesma ração.
 
 **Re-tentativas e fallback.** Quando a formulação de um lote de vacas em lactação falha, o RuFaS (`Pen._run_formulation_attempts`) tenta de novo, cortando a produção de leite exigida ou aumentando o consumo de matéria seca. Se ainda assim falha, usa a ração anterior ou a definida pelo usuário. O `run.py` registra cada evento de reformulação em `events_<pid>.jsonl`, com o número de tentativas, os cortes de leite e o fallback, e o `summarize` mostra a tabela. Na fazenda de exemplo não houve nenhuma falha, nem com o SLSQP nem com o SLP: 1 tentativa por evento.
 
@@ -161,24 +161,38 @@ Com o SLSQP, parte da diferença entre duas formulações pode ser ruído do pon
 | Pré-parto (CLOSE_UP) | 3 de 13 | 0 | 0,13% | 2,8× |
 | Novilhas (GROWING) | 0 de 13 | 0 | 0,00% | 1,9× |
 
-O SLP **nunca custou mais** que o SLSQP. Ele é **determinístico** e **2 a 3 vezes mais rápido**, e achou ração viável em 100% dos casos. A economia em dinheiro só tem sentido com **preços reais** (CEPEA, seção 7) e as fazendas do professor, porque os preços de exemplo são genéricos.
+A tabela acima foi medida antes das várias partidas. Com a versão atual, a fazenda de exemplo dá:
+- **lactação:** SLP mais barato em 4 de 13 formulações, economia média de 0,08%;
+- **pré-parto:** SLP mais barato em 3 de 13, economia média de 0,43%;
+- **novilhas:** empate.
+
+O SLP nunca custou mais e achou ração viável em 100% dos casos. A velocidade ficou parecida com a do SLSQP, entre 0,5 e 1,2 vez a dele.
+
+**Fazendas com preços brasileiros.** O professor não vai enviar fazendas. Por isso a comparação econômica usa 8 fazendas montadas com os exemplos do RuFaS ([`scenarios/fazendas/`](../scenarios/fazendas/README.md)): rebanhos free-stall (100 vacas) e open lot (1.000 vacas), cada um com as 4 listas regionais de alimentos, e os preços de `planilha-2026.json`. Resultados:
+- **312 formulações pareadas**, com 100% de sucesso nos dois otimizadores;
+- nenhuma re-tentativa, corte de leite ou fallback;
+- **o SLP nunca ficou mais caro**;
+- nas listas Midwest, o SLP ficou 0,05% mais barato na lactação, o que dá **R$ 577/ano** no rebanho de 100 vacas e **R$ 5.326/ano** no de 1.000; nas outras listas houve empate;
+- o custo da dieta de lactação ficou entre **R$ 19,73 e R$ 32,56 por vaca/dia**.
+
+Antes das várias partidas, o SLP ficou 1,1% mais caro na lactação da freestall-midwest, com uma formulação 10% acima do SLSQP. A correção foi medida nesse mesmo caso.
 
 **Contra o melhor SLSQP.** O SLSQP do RuFaS parte de um ponto sorteado (`random.random() * 10` por alimento). Por isso, comparar com uma única execução dele pode favorecer o SLP por sorte. Em `tests/benchmark_seeds.py`, o SLSQP roda com as sementes 0 a 99 em cada caso de teste, e o SLP roda uma vez:
 
 | Caso | SLP | Melhor SLSQP | Média SLSQP | Pior SLSQP | SLP × melhor | SLP × média | ms SLP | ms SLSQP |
 |---|---|---|---|---|---|---|---|---|
-| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 20 | 84 |
-| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 17 | 85 |
-| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | **−0,65%** | −0,92% | 81 | 86 |
-| NRC ×0,8 | 0,2696 | 0,2696 | 0,2696 | 0,2696 | 0,00% | 0,00% | 7 | 63 |
-| NRC ×1,0 | 0,2911 | 0,2911 | 0,2949 | 0,2978 | 0,00% | −1,28% | 16 | 53 |
-| NRC ×1,2 | 0,3546 | 0,3546 | 0,3581 | 0,3652 | 0,00% | −0,97% | 12 | 72 |
+| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 53 | 91 |
+| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 48 | 96 |
+| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | **−0,65%** | −0,92% | 113 | 97 |
+| NRC ×0,8 | 0,2696 | 0,2696 | 0,2696 | 0,2696 | 0,00% | 0,00% | 27 | 70 |
+| NRC ×1,0 | 0,2911 | 0,2911 | 0,2949 | 0,2978 | 0,00% | −1,28% | 113 | 59 |
+| NRC ×1,2 | 0,3546 | 0,3546 | 0,3581 | 0,3652 | 0,00% | −0,97% | 46 | 83 |
 
 O SLSQP não falhou em nenhuma das 600 execuções. Os dados mostram quatro coisas:
 - O SLP **empata com o melhor de 100 SLSQPs** em 5 dos 6 casos.
 - No NASEM ×1,2, o SLP é **0,65% mais barato do que todas as 100 execuções**. Nesse caso, o SLSQP para num ótimo local qualquer que seja o ponto de partida.
 - Contra uma execução típica do SLSQP (a média), o SLP é de 0 a 1,3% mais barato. Entre o melhor e o pior ponto de partida, o próprio SLSQP varia até 3% (NRC ×1,2: de 0,3546 a 0,3652).
-- O SLP leva de 7 a 20 ms, contra 53 a 86 ms de uma execução do SLSQP. A exceção é o NASEM ×1,2, em que o SLP usa 24 iterações e o tempo empata. Para igualar o SLP, o SLSQP precisaria de várias execuções, e o tempo dele se multiplica.
+- Com as 3 partidas, o SLP leva de 27 a 113 ms, contra 59 a 97 ms de **uma** execução do SLSQP. Para chegar ao custo do SLP, o SLSQP precisaria de várias execuções, e o tempo dele se multiplica. Com uma partida só, o SLP levava de 7 a 81 ms.
 
 Para reproduzir: `.venv\Scripts\python tests\benchmark_seeds.py 100`.
 
@@ -230,6 +244,12 @@ O teto é necessário porque o modelo do RuFaS não limita minerais: sem ele, o 
 
 Resultado: SLP R$ 19,73, SLSQP R$ 19,72 e NRC/PuLP R$ 25,64 por vaca/dia. O `planilha-2026.csv` registra o status de cada preço (verificado, parcial, proxy, não verificado) e o tratamento dado.
 
+**Sensibilidade a ±10% e ±20%** nos preços de silagem, caroço, farelo, milho e casca de soja: [`sensibilidade.md`](../scenarios/precos/sensibilidade.md), gerado por `sensibilidade.py`, que re-resolve cada caso.
+- A **silagem de milho** é o que mais pesa. Com ±20% no preço dela, o custo varia ±10,4% no SLP e ±5,3% no NRC. Depois vêm o farelo (até ±7,8% no NRC) e o caroço (±5,6%).
+- O milho grão e a casca de soja não entram na ração, ou entram pouco, e mudam o custo em menos de 1%.
+- No **NRC, a ração não muda** em nenhum dos casos. Só o custo varia, o que confirma as faixas de preço da análise de PL.
+- No SLP, a ração muda pouco, quase sempre menos de 0,3 kg, com uma exceção: com o farelo 20% mais barato, ele troca 3,8 kg de silagem por 1,4 kg de farelo.
+
 Para a comparação econômica final, os mesmos preços entram no `feed.json` do cenário da simulação (`purchased_feed_cost`), e roda-se o modo `compare`.
 
 ## 8. Testes
@@ -260,13 +280,18 @@ O TCC *Formulação Nutricional Otimizada como Ferramenta para Aumento de Margem
 - **Teor de P da dieta:** `Nutrients.ration_phosphorus_concentration` nunca é atualizado e fica 0. A eficiência de absorção do P na vaca em lactação é sempre a constante 1,867.
 - **Alojamento:** as calculadoras comparam o texto com `"Barn"` e `"Grazing"` exatos. As fazendas de exemplo usam `"open air barn"` e `"barn"`, então o NASEM dá energia de atividade **zero** na simulação. Uma fazenda a pasto precisa trazer exatamente `"Grazing"`.
 - **Ganho médio diário:** a docstring do RuFaS diz gramas, mas a equação usa kg/dia.
+- **Exemplo Northeast:** `example_Northeast_feed.json` repete o alimento 176, e o próprio RuFaS recusa o arquivo. O gerador das fazendas remove a duplicata.
+- **Sem teto de minerais:** o modelo do RuFaS não limita minerais. Com calcário barato, o otimizador o usa como enchimento. Os cenários de preço trazem um teto prático.
 
-**Limites do SLP:** nas restrições não lineares, ele acha um ótimo **local**, como o SLSQP.
+**Limites do SLP:** nas restrições não lineares, ele acha um ótimo **local**, como o SLSQP. As 3 partidas reduzem esse risco, mas não garantem o ótimo global.
 
 **Modelo PuLP:** ainda roda fora da simulação, e o NDT entra sem o desconto por consumo.
 
-**Pendente:**
-- rodar as fazendas do professor no modo `compare` com preços CEPEA;
-- medir as re-tentativas e o fallback nas fazendas do professor (a medição já existe; na fazenda de exemplo não houve falhas);
+**Dados:**
+- as fazendas são os exemplos do RuFaS, com preços brasileiros, porque o professor não vai enviar fazendas;
+- os preços são de set–nov/2026, sem notas fiscais;
+- o premix é provisório, e os minerais têm preço de grau agrícola.
+
+**Próximos passos:**
 - ligar o modelo PuLP dentro da simulação;
 - terminar a leitura catalogada dos livros (o NASEM 2021 é escaneado e precisa de OCR).
