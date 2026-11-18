@@ -231,6 +231,31 @@ O add-on lineariza as restrições do RuFaS em cada passo, resolve um problema
 linear e repete os passos até obter uma ração viável. Esse é o otimizador
 criado pelo projeto do add-on.
 
+O SLP não roda uma vez só. `LinearRationOptimizer._solve` executa o mesmo
+procedimento (`_solve_from`) a partir de três pontos iniciais e devolve a ração
+viável de menor custo:
+
+1. o ponto inicial do próprio add-on: a ração anterior, quando existe, ou os
+   limites dos alimentos escalados até o DMI exigido;
+2. mais `EXTRA_STARTS = 2` pontos sorteados entre o limite mínimo e
+   `min(limite máximo, DMI)` de cada alimento, com `numpy.random.default_rng(0)`.
+
+O motivo é verificável nos resultados: as restrições de energia e proteína
+metabolizável são não lineares de fato (seção
+[Origem e linearidade das restrições](#origem-e-linearidade-das-restrições)), e
+o problema não é convexo. Um método local, seja o SLP ou o SLSQP, pode parar
+num ponto que satisfaz as condições de ótimo local sem ser o de menor custo. Na
+fazenda `freestall-midwest` com preços brasileiros, a versão com uma partida só
+ficou 1,1% mais cara que o SLSQP na lactação, com uma formulação 10% acima.
+Com as três partidas, o SLP não ficou mais caro em nenhuma das 312 formulações
+das 8 fazendas de teste.
+
+A semente é fixa, então o resultado continua determinístico: a mesma entrada
+sempre dá a mesma ração. O custo é o tempo, que ficou de 2 a 3 vezes maior, de
+30 a 110 ms por formulação, parecido com uma execução do SLSQP. As três
+partidas não garantem o ótimo global; elas reduzem a chance de parar num ótimo
+local ruim.
+
 ### Otimizador original do RuFaS
 
 Seleciona `RuFaS original (SLSQP)` e usa:
@@ -282,16 +307,131 @@ Execute uma vez com cada opção e compare:
 - margem das restrições.
 
 O SLP é determinístico porque o add-on define um ponto inicial determinístico,
-e o `LinearRationOptimizer` não chama o gerador aleatório do Python para construir
-esse ponto. Ele também parte de mais 2 pontos sorteados com semente fixa
-(`numpy.random.default_rng(0)`) e fica com a ração viável mais barata. O problema
-não é convexo, e com uma partida só o SLP chegou a ficar 10% mais caro numa
-formulação com preços brasileiros. O `RationOptimizer` original do RuFaS, ao contrário, usa um ponto
-inicial aleatório quando não existe uma ração anterior. Isso explica por que
+e o `LinearRationOptimizer` não chama o gerador aleatório do Python para
+construir esse ponto. Os dois pontos extras são sorteados com semente fixa
+(`numpy.random.default_rng(0)`), então também se repetem a cada execução. O
+`RationOptimizer` original do RuFaS, ao contrário, usa um ponto inicial
+aleatório sem semente fixa quando não existe uma ração anterior. Isso explica por que
 duas execuções do SLSQP podem ter trajetórias e resultados diferentes. Para
 comparar métodos, repita o SLSQP com várias sementes/execuções e informe a
 variação observada; não compare uma única execução aleatória com o resultado
 determinístico do SLP como se ambos tivessem recebido o mesmo ponto inicial.
+
+## Preços reais e fazendas de teste
+
+Esta seção descreve os dados usados na comparação econômica final. Ela separa
+três etapas que podem ser conferidas de forma independente:
+
+1. **a conversão dos preços** para a unidade usada pelo RuFaS;
+2. **a montagem das fazendas** a partir dos exemplos do próprio RuFaS;
+3. **a execução e a leitura dos resultados**.
+
+### Unidade dos preços
+
+O custo da ração no RuFaS é `soma(preco_i * x_i)`, e `x_i` está em kg de
+**matéria seca** (MS). Portanto, `preco_i` precisa estar em R$ por kg de MS. As
+fontes, porém, publicam o preço na **matéria natural** (o alimento como é
+vendido, com água). A conversão usa a coluna `DM` da biblioteca
+`NASEM_Comp_with_TDN.csv`:
+
+```text
+R$/kg MS = (R$/kg na matéria natural) / (MS% / 100)
+```
+
+Exemplo: silagem de milho a R$ 0,35/kg com 35,4% de MS custa
+`0,35 / 0,354 = R$ 0,99/kg MS`. Sem essa conversão, os volumosos pareceriam
+até três vezes mais baratos e o otimizador encheria a ração com eles. O leite
+usa `R$/kg = R$/litro / 1,032`, a densidade do leite.
+
+### Cenários de preço (`scenarios/precos/`)
+
+| Arquivo | Conteúdo |
+|---|---|
+| `goias-2026-11.json` | leite e milho do CEPEA, farelo de Rio Verde (GO) e três alimentos de uma fazenda de Goiás |
+| `planilha-2026.json` | 127 alimentos da planilha de preços montada pela turma, com os preços de Goiás onde existem |
+| `planilha-2026.csv` | uma linha por item da planilha: preço, MS, R$/kg MS, fonte, status e o tratamento dado |
+| `converter_planilha.py` | gera o CSV e o JSON a partir da planilha `.xlsx` |
+| `sensibilidade.py` / `.md` | re-solução com ±10% e ±20% no preço dos ingredientes principais |
+
+Os dois JSON podem ser importados na interface (**Importar**). O
+`converter_planilha.py` faz, além da conversão de unidade, quatro ajustes, todos
+registrados na coluna `tratamento` do CSV:
+
+- usa os preços de Goiás no milho, farelo, silagem, caroço, casca de soja e
+  leite, por serem regionais e mais recentes;
+- corrige o premix (300) para R$ 5,00/kg, valor **provisório**, porque o proxy
+  da planilha era um núcleo probiótico de R$ 149,99/kg;
+- ignora o bagaço de maçã (3), porque o preço é do produto seco e a entrada da
+  biblioteca é a úmida;
+- põe um teto prático de 0,3, 0,15 e 0,2 kg MS/dia em calcário, sal e premix.
+
+O teto existe porque o RuFaS não tem uma restrição de máximo para minerais. Com
+o calcário a R$ 0,10/kg, o SLP chegou a usar 6,9 kg/dia e o SLSQP 4,1 kg/dia,
+como enchimento barato de matéria seca. Isso é uma propriedade do modelo, não
+um erro de conta, e o teto é uma premissa que pode ser alterada na página.
+
+Para refazer a conversão quando a planilha for atualizada:
+
+```powershell
+.venv\Scripts\python scenarios\precos\converter_planilha.py "caminho\Preços de ingredientes para nutrição de vacas (R$ kg).xlsx"
+```
+
+### Fazendas de teste (`scenarios/fazendas/`)
+
+O professor não vai enviar fazendas. A comparação usa, então, os exemplos que
+vêm com o próprio RuFaS, sem editar a pasta `RufSas/RuFaS`:
+`scenarios/fazendas/gerar.py` lê os arquivos de exemplo e grava cópias
+modificadas em `scenarios/fazendas/<rebanho>-<região>/`.
+
+- **Rebanhos:** `example_freestall_animal.json` (100 vacas) e
+  `example_open_lot_animal.json` (1.000 vacas).
+- **Listas de alimentos:** `example_{Midwest,Intermountain,Northeast,Southwest}_feed.json`.
+  São 2 rebanhos × 4 listas = 8 fazendas.
+- **Mudanças em relação ao exemplo:**
+  - só animais, um ano (2013), como `scenarios/smoke`;
+  - `ration.user_input: false`, para a ração ser formulada pelo otimizador;
+  - `purchased_feed_cost` com os preços de `planilha-2026.json`.
+
+Cinco alimentos dessas listas não têm preço na planilha: o concentrado de
+bezerra (216) e as misturas de subprodutos `Farm ES ... BP Blend` (302–305).
+Para eles o gerador usa o **método de Petersen**: o preço é o valor da energia e
+da proteína, calculado a partir do milho (44) e do farelo de soja (167), que
+têm preço de mercado. Resolvendo o sistema 2 × 2:
+
+```text
+preco = a * NEL + b * PB
+preco_milho  = a * NEL_milho  + b * PB_milho
+preco_farelo = a * NEL_farelo + b * PB_farelo
+NEL = 0,0245 * NDT - 0,12      (Mcal/kg MS)
+```
+
+O concentrado de bezerra vem com NDT = 0 na biblioteca; o gerador assume 80%,
+valor típico de concentrado inicial. O exemplo Northeast do RuFaS também traz o
+alimento 176 repetido, e o próprio RuFaS recusa o arquivo
+(`ValueError: ... repeated feed_type entries`). O gerador mantém uma entrada só.
+
+### Execução e resultado
+
+```powershell
+.venv\Scripts\python scenarios\fazendas\gerar.py
+.venv\Scripts\python -m addon_rufas.run --optimizer compare -g -v errors -p scenarios\fazendas\freestall-midwest\task_manager_metadata.json -o results\fazendas\freestall-midwest\
+.venv\Scripts\python -m addon_rufas.summarize results\fazendas\freestall-midwest
+```
+
+No modo `compare`, o SLP conduz a simulação e o SLSQP resolve em sombra o mesmo
+problema, então cada linha do resultado é um par com entradas idênticas. Nas
+8 fazendas foram 312 pares (13 formulações por lote × 3 lotes × 8):
+
+- os dois otimizadores formularam com sucesso em 100% dos casos, sem nenhuma
+  re-tentativa, corte de leite ou ração de fallback;
+- o SLP **não ficou mais caro** (diferença acima de 0,1%) em nenhum par;
+- nas duas fazendas Midwest, o SLP ficou 0,05% mais barato na lactação:
+  R$ 577/ano no rebanho de 100 vacas e R$ 5.326/ano no de 1.000;
+- nas outras seis fazendas, os dois chegaram à mesma ração.
+
+A tabela por fazenda está em
+[`scenarios/fazendas/README.md`](scenarios/fazendas/README.md), e a análise, no
+[relatório](docs/RELATORIO.md).
 
 ## Preservação do RuFaS
 
