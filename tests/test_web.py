@@ -132,6 +132,16 @@ def test_pulp_model_in_the_page_reports_shadow_prices():
     assert "Vitamina A: falta" in infeasible and "VitTM Premix, generic (300)" in infeasible
 
 
+def test_spreadsheet_price_scenario_imports_and_solves():
+    name = "planilha-2026.json"
+    content = (Path(__file__).parents[1] / "scenarios" / "precos" / name).read_bytes()
+    upload = {"action": "import", "scenario": (io.BytesIO(content), name)}
+    page = html.unescape(client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True))
+    assert "Não foi possível importar" not in page
+    form = web._imported_form(type("Upload", (), {"filename": name, "stream": io.BytesIO(content)}))[0]
+    assert "<h2>Viável</h2>" in client.post("/", data=form).get_data(as_text=True)
+
+
 def test_imports_a_dietopt_scenario_file():
     content = (Path(__file__).parent / "data" / "cenario-dietopt.json").read_bytes()
     upload = {"action": "import", "scenario": (io.BytesIO(content), "cenario-avaliar-dietas.json")}

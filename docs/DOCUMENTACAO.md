@@ -218,20 +218,30 @@ O CEPEA (Esalq/USP) publica indicadores de preço sob a licença CC BY-NC 4.0. O
 {"milk_price": 2.35, "cost_44": 1.34, "cost_50": 0.62, "selected_feeds": [44, 50, 95, 104, 300, 234, 239]}
 ```
 
-**Preços já coletados:** [`scenarios/precos/goias-2026-11.json`](../scenarios/precos/goias-2026-11.json) tem o leite (CEPEA, Goiás, set/2026), o milho (CEPEA, 10/11/2026), o farelo de soja (Rio Verde, 13/11/2026) e silagem, caroço e casca de soja (fazenda de Goiás, 2025). As fontes e as ressalvas estão no [README da pasta](../scenarios/precos/README.md). Com esses preços, a vaca padrão sai a R$ 30,26 por dia, com IOFC de R$ 64,31.
+**Preços já coletados:** [`scenarios/precos/goias-2026-11.json`](../scenarios/precos/goias-2026-11.json) tem o leite (CEPEA, Goiás, set/2026), o milho (CEPEA, 10/11/2026), o farelo de soja (Rio Verde, 13/11/2026) e silagem, caroço e casca de soja (fazenda de Goiás, 2025). As fontes e as ressalvas estão no [README da pasta](../scenarios/precos/README.md). Com esses preços, depois de "Calcular exigências", a vaca padrão sai a R$ 30,26 por dia, com IOFC de R$ 64,31.
+
+**Planilha dos colegas:** [`scenarios/precos/planilha-2026.json`](../scenarios/precos/planilha-2026.json) tem preço para 127 dos 175 alimentos da biblioteca. Ele foi gerado por `converter_planilha.py` a partir da planilha de preços da turma:
+- os preços foram convertidos de matéria natural para MS;
+- os preços de Goiás têm prioridade;
+- o premix foi corrigido para R$ 5/kg, porque o proxy da planilha era um núcleo probiótico;
+- calcário, sal e premix receberam teto de 0,3, 0,15 e 0,2 kg MS/dia.
+
+O teto é necessário porque o modelo do RuFaS não limita minerais: sem ele, o calcário a R$ 0,10/kg entra como enchimento, com 4 a 7 kg/dia.
+
+Resultado: SLP R$ 19,73, SLSQP R$ 19,72 e NRC/PuLP R$ 25,64 por vaca/dia. O `planilha-2026.csv` registra o status de cada preço (verificado, parcial, proxy, não verificado) e o tratamento dado.
 
 Para a comparação econômica final, os mesmos preços entram no `feed.json` do cenário da simulação (`purchased_feed_cost`), e roda-se o modo `compare`.
 
 ## 8. Testes
 
-`.venv\Scripts\python -m pytest` roda 34 testes, todos com alimentos reais da biblioteca do RuFaS:
+`.venv\Scripts\python -m pytest` roda 35 testes, todos com alimentos reais da biblioteca do RuFaS:
 - **SLP** (`test_linear_ration_optimizer.py`): ração viável, custo ≤ SLSQP, determinismo e inviabilidade reportada.
 - **NRC/PuLP** (`test_nrc_lp.py`): todas as restrições atendidas, preço-sombra igual à diferença finita, faixas de validade e custo reduzido conferidos por re-solução, e diagnóstico de inviabilidade.
 - **Instrumentação** (`test_instrument.py`): contagem de tentativas, cortes de leite e fallback num lote simulado que falha.
 - **Interface** (`test_web.py`):
   - páginas, nomes das restrições, erros de entrada e as três categorias;
   - alojamento, fósforo do processo, IOFC;
-  - exportar e importar JSON, inclusive o formato `dietopt-scenario`;
+  - exportar e importar JSON, inclusive o formato `dietopt-scenario` e o cenário de preços da planilha (viável);
   - análise de sensibilidade e o modelo PuLP na página.
 
 ## 9. Trabalho relacionado

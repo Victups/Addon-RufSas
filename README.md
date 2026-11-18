@@ -17,7 +17,9 @@ otimizador em tempo de execução.
 - Escopo e plano de entregas: [`addon-rufas-otimizacao-dieta.md`](addon-rufas-otimizacao-dieta.md)
 - Notas dos livros NRC 2001 e NASEM 2021: [`docs/notas-livros.md`](docs/notas-livros.md)
 - Rascunho do relatório final: [`docs/RELATORIO.md`](docs/RELATORIO.md)
-- Preços reais de Goiás (CEPEA e praça): [`scenarios/precos/`](scenarios/precos/README.md)
+- Preços reais (R$/kg MS), em [`scenarios/precos/`](scenarios/precos/README.md), com fontes e ressalvas no README da pasta:
+  - `goias-2026-11.json`: leite e milho do CEPEA e outros 4 alimentos de Goiás;
+  - `planilha-2026.json`: 127 alimentos da planilha dos colegas, convertidos com `converter_planilha.py`, com o premix corrigido e teto nos minerais.
 
 ## Instalação
 
