@@ -450,8 +450,14 @@ def _simulate_nrc(
         for feed in feeds
     ]
     extra = {key: _float(form, key) for key, _, _ in NRC_FIELDS}
-    if extra["ndf_min"] > extra["ndf_max"] or extra["dmi_tolerance"] < 0:
-        raise ValueError("FDN mínimo maior que o máximo, ou tolerância de MS negativa")
+    if (
+        extra["ndf_min"] > 0
+        and extra["ndf_max"] > 0
+        and extra["ndf_min"] > extra["ndf_max"]
+    ):
+        raise ValueError("FDN mínimo maior que o máximo")
+    if extra["dmi_tolerance"] < 0:
+        raise ValueError("tolerância de MS negativa")
     nrc = nrc_lp.solve(
         rows,
         {

@@ -764,6 +764,8 @@ Esses dados vêm de:
 
 O modelo não é chamado “somente NRC” porque a interface usa exigências básicas NASEM para energia, proteína, cálcio, fósforo e DMI, e usa NRC clássico para as restrições adicionais.
 
+**Correção importante sobre o valor zero:** na aba NRC, `0` desativa a restrição correspondente de FDN mínima, FDN máxima, FDN de forragem mínima e gordura máxima. Os minerais e vitaminas já eram desativados por `0` no código anterior. Foi corrigido em [addon_rufas/nrc_lp.py](addon_rufas/nrc_lp.py) para que os limites máximos de FDN e gordura não sejam interpretados como exigir NDF/EE menor ou igual a zero. Essa correção está coberta por [tests/test_nrc_lp.py](tests/test_nrc_lp.py).
+
 ---
 
 ## 15. Fluxo de cada modelo

@@ -166,10 +166,18 @@ def solve(feeds: Sequence[Mapping[str, Any]], requirements: Mapping[str, float])
     rows["Proteína metabolizável"] = (dot(mp) >= req["mp"], "g", False)
     rows["Cálcio absorvível"] = (dot(ca) >= req["calcium"], "g", False)
     rows["Fósforo absorvível"] = (dot(p) >= req["phosphorus"], "g", False)
-    rows["FDN (mínimo)"] = (dot([n - req["ndf_min"] for n in ndf]) >= 0, "% MS", True)
-    rows["FDN (máximo)"] = (dot([n - req["ndf_max"] for n in ndf]) <= 0, "% MS", True)
-    rows["FDN de forragem (mínimo)"] = (dot([n - req["forage_ndf_min"] for n in forage_ndf]) >= 0, "% MS", True)
-    rows["Gordura (máximo)"] = (dot([e - req["fat_max"] for e in per_kg("EE")]) <= 0, "% MS", True)
+    if req["ndf_min"] > 0:
+        rows["FDN (mínimo)"] = (dot([n - req["ndf_min"] for n in ndf]) >= 0, "% MS", True)
+    if req["ndf_max"] > 0:
+        rows["FDN (máximo)"] = (dot([n - req["ndf_max"] for n in ndf]) <= 0, "% MS", True)
+    if req["forage_ndf_min"] > 0:
+        rows["FDN de forragem (mínimo)"] = (
+            dot([n - req["forage_ndf_min"] for n in forage_ndf]) >= 0,
+            "% MS",
+            True,
+        )
+    if req["fat_max"] > 0:
+        rows["Gordura (máximo)"] = (dot([e - req["fat_max"] for e in per_kg("EE")]) <= 0, "% MS", True)
 
     warnings = []
     for group, unit in ((MACRO_MINERALS, "% MS"), (TRACE_MINERALS, "mg/kg MS"), (VITAMINS, "UI")):

@@ -54,6 +54,25 @@ def test_infeasible_model_says_what_is_missing(feeds):
     assert sum(result.x) == 0  # no meaningless ration when infeasible
 
 
+def test_zero_fiber_and_fat_limits_disable_nrc_rows(feeds):
+    result = nrc_lp.solve(
+        feeds,
+        {
+            **REQUIREMENTS,
+            "ndf_min": 0,
+            "ndf_max": 0,
+            "forage_ndf_min": 0,
+            "fat_max": 0,
+        },
+    )
+    names = {row["name"] for row in result.constraints}
+    assert result.success
+    assert "FDN (mínimo)" not in names
+    assert "FDN (máximo)" not in names
+    assert "FDN de forragem (mínimo)" not in names
+    assert "Gordura (máximo)" not in names
+
+
 def test_ranging_matches_resolving(feeds):
     base = nrc_lp.solve(feeds, REQUIREMENTS)
     # cost ranging: inside the corn price range the ration is the same, just outside it changes
