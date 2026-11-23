@@ -37,13 +37,14 @@ Na raiz deste repositório:
 # Windows (PowerShell)
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
+$env:PYTHONPATH="RufSas/RuFaS"
 .venv\Scripts\python -m addon_rufas.web
 ```
 
 ```bash
 # Linux/macOS
 python -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m addon_rufas.web
+PYTHONPATH=RufSas/RuFaS .venv/bin/python -m addon_rufas.web
 ```
 
 Abra `http://127.0.0.1:5000`. Testes: `.venv\Scripts\python -m pytest`.
@@ -707,7 +708,7 @@ Na raiz do repositório, com o RuFaS disponível em `RufSas/RuFaS`:
 ```bash
 python -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m addon_rufas.web
+PYTHONPATH=RufSas/RuFaS .venv/bin/python -m addon_rufas.web
 ```
 
 No Windows PowerShell, use:
@@ -715,6 +716,7 @@ No Windows PowerShell, use:
 ```powershell
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
+$env:PYTHONPATH="RufSas/RuFaS"
 .venv\Scripts\python -m addon_rufas.web
 ```
 
