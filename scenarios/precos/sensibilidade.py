@@ -17,7 +17,7 @@ from addon_rufas import web  # noqa: E402
 
 INGREDIENTS = [51, 58, 167, 44, 163]  # silagem, caroço, farelo, milho, casca de soja
 FACTORS = [0.8, 0.9, 1.1, 1.2]
-OPTIMIZERS = {"linear": "SLP", "pulp": "NRC"}
+OPTIMIZERS = {"linear": "Simplex", "pulp": "NRC"}
 
 
 def base_form() -> web.MultiDict:

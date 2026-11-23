@@ -38,26 +38,26 @@ Uma fazenda free-stall roda em 15–30 s; uma open lot, em até 2 min.
 
 ## Resultado (modo `compare`, novembro de 2026)
 
-São 39 formulações pareadas por fazenda (13 por lote: lactação, pré-parto e novilhas), 312 no total.
+O add-on conduz a simulação com o **simplex** (PuLP, restrições NASEM do RuFaS), e o SLSQP do RuFaS resolve em sombra o mesmo problema. São 39 formulações pareadas por fazenda (13 por lote: lactação, pré-parto e novilhas), 312 no total.
 
-| Fazenda | Custo lactação SLP (R$/vaca/dia) | SLSQP | SLP mais barato | SLP mais caro | Economia/ano |
+| Fazenda | Custo lactação simplex (R$/vaca/dia) | SLSQP | Simplex mais barato | Simplex mais caro | Diferença/ano |
 |---|---|---|---|---|---|
-| freestall-midwest | 32,56 | 32,58 | 2 | 0 | R$ 577 |
+| freestall-midwest | 32,55 | 32,35 | 0 | 11 (pior: +1,08%) | R$ 7.048 a mais |
 | freestall-intermountain | 23,66 | 23,66 | 0 | 0 | — |
 | freestall-northeast | 23,52 | 23,52 | 0 | 0 | — |
 | freestall-southwest | 23,66 | 23,66 | 0 | 0 | — |
-| openlot-midwest | 27,59 | 27,61 | 4 | 0 | R$ 5.326 |
+| openlot-midwest | 27,43 | 27,34 | 0 | 9 (pior: +0,77%) | R$ 31.392 a mais |
 | openlot-intermountain | 19,84 | 19,84 | 0 | 0 | — |
 | openlot-northeast | 19,73 | 19,73 | 0 | 0 | — |
 | openlot-southwest | 19,84 | 19,84 | 0 | 0 | — |
 
 Como ler a tabela:
 - "Mais barato" e "mais caro" contam diferenças acima de 0,1%.
-- A economia por ano é calculada só para as vacas em lactação: diferença média × número de vacas × 365.
+- A diferença por ano é calculada só para as vacas em lactação: diferença média × número de vacas × 365.
 
 O que os resultados mostram:
-- **Viabilidade:** os dois otimizadores formularam com sucesso em 100% dos casos.
+- **Viabilidade:** o simplex formulou com sucesso em 100% dos casos; o SLSQP falhou em 2 formulações da openlot-midwest.
 - **Robustez:** nenhum evento precisou de nova tentativa, corte de leite ou ração de fallback.
-- **Custo:** o SLP **nunca ficou mais caro**. Ele foi mais barato nas listas Midwest, que têm mais alimentos e mais ótimos locais, e empatou nas outras.
+- **Custo:** nas seis fazendas não Midwest, os dois chegaram à mesma ração. Nas duas Midwest, o simplex ficou mais caro na lactação: 0,60% na freestall e 0,31% na open lot.
 
-**Versão anterior do SLP.** Antes de usar várias partidas, o SLP partia de um único ponto e ficou **1,1% mais caro** na lactação da freestall-midwest. Em 5 de 13 formulações passou do SLSQP, com um caso de +10%. O problema não é convexo, e um único ponto de partida parava num ótimo local pior. Por isso o SLP agora parte de 3 pontos com semente fixa (`EXTRA_STARTS = 2`) e fica com a ração viável mais barata. O resultado continua determinístico, mas cada formulação ficou 2 a 3 vezes mais lenta, de 30 a 110 ms.
+**Por que Midwest.** É a lista em que a decisão é entre milho grão e silagem. O simplex fixa, em cada rodada, os números que dependem da ração inteira (consumo, amido, % de concentrado). Com eles fixos, o grão parece mais barato do que é, porque o PL não vê que mais grão reduz a digestibilidade da fibra e muda a passagem da proteína de todos os alimentos. O README principal explica isso em "Limite do método". O SLP da branch `integracao-rufas`, que usa derivadas, ficava 0,05% mais barato que o SLSQP nessas mesmas fazendas.

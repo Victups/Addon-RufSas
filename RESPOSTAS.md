@@ -1,5 +1,7 @@
 # Respostas sobre o projeto Add-on RuFaS
 
+> **Branch `pulp-simplex-nasem`:** nesta branch o SLP (`linear_ration_optimizer.py`) foi substituído pelo simplex em PuLP com as restrições NASEM do RuFaS (`addon_rufas/simplex_ration_optimizer.py`). As explicações sobre o SLP abaixo valem para a branch `integracao-rufas`. O método atual está no README, em "Linearização usada pelo simplex, passo a passo".
+
 Este documento explica o projeto a partir do código atual. Os comandos assumem a raiz deste repositório.
 
 ## Leitura rápida

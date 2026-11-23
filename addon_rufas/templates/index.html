@@ -10,10 +10,10 @@
 <main>
   <header class="hero">
     <div>
-      <p class="eyebrow">Addon-RufSas · NASEM · SLP</p>
+      <p class="eyebrow">Addon-RufSas · NASEM · PuLP simplex</p>
       <h1>Laboratório de formulação</h1>
       <p>Altere os valores da fazenda fictícia e observe a dieta produzida pelo mesmo
-        <code>LinearRationOptimizer</code> usado na integração.</p>
+        <code>SimplexRationOptimizer</code> usado na integração.</p>
     </div>
     <div class="badge">RuFaS original<br><strong>somente leitura</strong></div>
   </header>
@@ -42,7 +42,7 @@
       <p class="muted">Escolha qual implementação resolverá a mesma formulação com os mesmos alimentos, preços, limites e exigências.</p>
       <div class="optimizer-options">
         <label class="optimizer-option"><input type="radio" name="optimizer" value="linear" {% if optimizer == 'linear' %}checked{% endif %}>
-          <strong>Programação linear sequencial (SLP)</strong><span>Usa <code>LinearRationOptimizer</code> e HiGHS/LP.</span>
+          <strong>PuLP + simplex (NASEM)</strong><span>Usa <code>SimplexRationOptimizer</code>: as mesmas restrições NASEM do RuFaS, resolvidas pelo simplex.</span>
         </label>
         <label class="optimizer-option"><input type="radio" name="optimizer" value="rufas" {% if optimizer == 'rufas' %}checked{% endif %}>
           <strong>RuFaS original (SLSQP)</strong><span>Usa <code>RationOptimizer</code> e <code>scipy.optimize.minimize</code>.</span>
@@ -155,9 +155,9 @@
       <summary>Análise de sensibilidade</summary>
       <p class="muted">Varia um item e formula de novo, com o otimizador escolhido acima: mostra quais alimentos entraram, saíram,
         aumentaram ou diminuíram, o impacto no custo e no IOFC, o custo marginal e as restrições que limitam a solução.
-        Prefira o SLP ou o modelo NRC. O SLSQP do RuFaS usa um ponto inicial
+        Prefira o simplex ou o modelo NRC. O SLSQP do RuFaS usa um ponto inicial
         aleatório quando não há ração anterior; isso pode mudar sua trajetória
-        numérica. Diferenças entre SLP e SLSQP devem ser separadas de diferenças
+        numérica. Diferenças entre simplex e SLSQP devem ser separadas de diferenças
         reais do modelo NRC, que usa outra formulação.</p>
       <div class="fields">
         <label>Item a variar

@@ -1,8 +1,8 @@
 """
-SLP versus the original SLSQP over many random starts, on the same cases as test_lp_costs_no_more_than_slsqp.
+PuLP simplex versus the original SLSQP over many random starts, on the same cases as test_lp_costs_no_more_than_slsqp.
 
 RuFaS starts SLSQP from random.random() * 10 per feed, so a single SLSQP run is one draw. This repeats SLSQP with
-seeds 0..N-1 and compares the SLP (deterministic, one run) with the best, mean and worst SLSQP cost, and the time.
+seeds 0..N-1 and compares the simplex (deterministic, one run) with the best, mean and worst SLSQP cost, and the time.
 
     .venv\\Scripts\\python tests\\benchmark_seeds.py [N]
 """
@@ -16,9 +16,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT), str(ROOT / "RufSas" / "RuFaS"), str(ROOT / "tests")]
 
-from test_linear_ration_optimizer import _formulate, _requirements, load_feeds  # noqa: E402
+from test_simplex_ration_optimizer import _formulate, _requirements, load_feeds  # noqa: E402
 
-from addon_rufas.linear_ration_optimizer import LinearRationOptimizer  # noqa: E402
+from addon_rufas.simplex_ration_optimizer import SimplexRationOptimizer  # noqa: E402
 from RUFAS.biophysical.animal.ration.ration_optimizer import RationOptimizer  # noqa: E402
 from RUFAS.data_structures.feed_storage_to_animal_connection import NutrientStandard  # noqa: E402
 
@@ -30,14 +30,14 @@ def timed(optimizer, feeds, requirements):
 
 
 def main(seeds: int) -> None:
-    print(f"{seeds} sementes do SLSQP por caso; custo por vaca/dia; diferença = (SLP - SLSQP) / SLSQP")
-    print(f"{'caso':12} {'SLP':>7} {'melhor':>7} {'média':>7} {'pior':>7} {'falhas':>7} "
-          f"{'SLP-melhor':>11} {'SLP-média':>10} {'ms SLP':>7} {'ms SLSQP':>9}")
-    for standard in (NutrientStandard.NASEM, NutrientStandard.NRC):
+    print(f"{seeds} sementes do SLSQP por caso; custo por vaca/dia; diferença = (simplex - SLSQP) / SLSQP")
+    print(f"{'caso':12} {'simplex':>7} {'melhor':>7} {'média':>7} {'pior':>7} {'falhas':>7} "
+          f"{'sx-melhor':>11} {'sx-média':>10} {'ms sx':>7} {'ms SLSQP':>9}")
+    for standard in (NutrientStandard.NASEM,):  # o simplex usa só as restrições NASEM
         feeds = load_feeds(standard)
         for scale in (0.8, 1.0, 1.2):
             requirements = _requirements(scale)
-            lp, lp_seconds = timed(LinearRationOptimizer(), feeds, requirements)
+            lp, lp_seconds = timed(SimplexRationOptimizer(), feeds, requirements)
             costs, seconds, failures = [], [], 0
             for seed in range(seeds):
                 random.seed(seed)

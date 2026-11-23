@@ -6,7 +6,7 @@ otimizadores para o mesmo problema de formulação:
 | Otimizador | O que é |
 |---|---|
 | **SLSQP** | O original do RuFaS (`RationOptimizer`), a linha de base. |
-| **SLP** | `addon_rufas/linear_ration_optimizer.py`: programação linear sequencial com HiGHS sobre as próprias restrições do RuFaS. Substitui o SLSQP dentro da simulação. É determinístico (3 partidas com semente fixa) e nunca ficou mais caro em 312 formulações de 8 fazendas com preços brasileiros. |
+| **PuLP + simplex (NASEM)** | `addon_rufas/simplex_ration_optimizer.py`: as mesmas restrições NASEM do RuFaS, resolvidas pelo método simplex no PuLP. Substitui o SLSQP dentro da simulação. É determinístico e não usa derivadas. |
 | **NRC clássico (PuLP)** | `addon_rufas/nrc_lp.py`: PL linear do NRC 2001 com energia, PDR, PNDR, proteína metabolizável, FDN, minerais e vitaminas, e preços-sombra. |
 
 O RuFaS **não é editado**: o add-on se liga a ele por subclasse e troca do
@@ -49,14 +49,14 @@ PYTHONPATH=RufSas/RuFaS .venv/bin/python -m addon_rufas.web
 
 Abra `http://127.0.0.1:5000`. Testes: `.venv\Scripts\python -m pytest`.
 
-## Simulação da fazenda (SLSQP × SLP)
+## Simulação da fazenda (SLSQP × simplex)
 
 ```powershell
 .venv\Scripts\python -m addon_rufas.run --optimizer compare -g -v errors -p scenarios\smoke\task_manager_metadata.json
 .venv\Scripts\python -m addon_rufas.summarize results\compare
 ```
 
-`--optimizer slsqp | lp | compare`. No modo `compare`, o SLP conduz a simulação
+`--optimizer slsqp | lp | compare` (`lp` é o simplex). No modo `compare`, o simplex conduz a simulação
 e o SLSQP resolve o mesmo problema em sombra a cada formulação, o que dá pares
 comparáveis. Para usar outra fazenda, troque o `-p`. Preços reais: veja a seção 7
 da [documentação](docs/DOCUMENTACAO.md#7-preços-reais-cepea).
@@ -65,7 +65,7 @@ da [documentação](docs/DOCUMENTACAO.md#7-preços-reais-cepea).
 São 8 fazendas montadas com os exemplos do RuFaS: rebanhos free-stall (100 vacas)
 e open lot (1.000 vacas), cada um com as 4 listas regionais de alimentos.
 `gerar.py` monta as pastas com os preços da planilha. O README da pasta tem os
-comandos e os resultados: 312 formulações pareadas, com o SLP nunca mais caro.
+comandos e os resultados das 312 formulações pareadas.
 
 **Sensibilidade a ±10% e ±20% nos preços:** [`scenarios/precos/sensibilidade.md`](scenarios/precos/sensibilidade.md),
 gerado por `scenarios/precos/sensibilidade.py`.
@@ -107,7 +107,7 @@ formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mos
   restrição). São essas restrições que definem o custo. Se a ração não muda, o
   item não limita a decisão naquela faixa.
 
-Para essa análise, prefira o SLP ou o modelo NRC. Isso não significa que o
+Para essa análise, prefira o simplex ou o modelo NRC. Isso não significa que o
 SLSQP faça uma “conta errada”: o custo e as restrições continuam sendo
 calculados pelas equações do RuFaS. A recomendação existe por dois motivos
 verificáveis no código:
@@ -131,12 +131,13 @@ como ruído.
 
 É importante também não misturar duas comparações:
 
-- SLP e SLSQP usam as mesmas funções de restrição do RuFaS. O SLP troca o
-  solucionador por LPs linearizados; portanto, diferenças pequenas entre eles
-  podem vir da aproximação local, das tolerâncias e da convergência do SLSQP.
+- simplex e SLSQP usam as mesmas restrições NASEM do RuFaS. O simplex resolve
+  PLs com os números da ração inteira fixados; portanto, diferenças pequenas
+  entre eles podem vir dessa aproximação, das tolerâncias e da convergência do
+  SLSQP.
 - o modelo NRC clássico é outra formulação: ele usa as equações lineares do
   `addon_rufas/nrc_lp.py`, incluindo simplificações documentadas, como TDN da
-  biblioteca sem o desconto de ingestão do NRC. Uma diferença entre NRC e SLP
+  biblioteca sem o desconto de ingestão do NRC. Uma diferença entre NRC e simplex
   pode ser uma diferença real de modelo, e não ruído.
 
 No modelo NRC, a tabela de margens também mostra o **preço-sombra** de cada
@@ -245,43 +246,24 @@ funções globais do RuFaS durante a formulação.
 
 Na seção **Otimizador**, selecione uma das opções:
 
-### Programação linear sequencial (SLP)
+### PuLP + simplex (NASEM)
 
-Seleciona `Programação linear sequencial (SLP)` e usa:
+Seleciona `PuLP + simplex (NASEM)` e usa:
 
 ```text
-addon_rufas.linear_ration_optimizer.LinearRationOptimizer
-scipy.optimize.linprog (HiGHS)
+addon_rufas.simplex_ration_optimizer.SimplexRationOptimizer
+pulp + HiGHS (solver="simplex")
 ```
 
-O add-on lineariza as restrições do RuFaS em cada passo, resolve um problema
-linear e repete os passos até obter uma ração viável. Esse é o otimizador
-criado pelo projeto do add-on.
+O otimizador usa as mesmas restrições NASEM que o SLSQP do RuFaS. A cada
+rodada, fixa os números que dependem da ração inteira (consumo, amido, % de
+concentrado e desconto do NDT), monta um PL e o resolve pelo simplex; depois
+recalcula esses números com a ração nova e resolve de novo, até a ração parar
+de mudar. Não usa derivadas. O passo a passo está em
+[Linearização usada pelo simplex](#linearização-usada-pelo-simplex-passo-a-passo).
 
-O SLP não roda uma vez só. `LinearRationOptimizer._solve` executa o mesmo
-procedimento (`_solve_from`) a partir de três pontos iniciais e devolve a ração
-viável de menor custo:
-
-1. o ponto inicial do próprio add-on: a ração anterior, quando existe, ou os
-   limites dos alimentos escalados até o DMI exigido;
-2. mais `EXTRA_STARTS = 2` pontos sorteados entre o limite mínimo e
-   `min(limite máximo, DMI)` de cada alimento, com `numpy.random.default_rng(0)`.
-
-O motivo é verificável nos resultados: as restrições de energia e proteína
-metabolizável são não lineares de fato (seção
-[Origem e linearidade das restrições](#origem-e-linearidade-das-restrições)), e
-o problema não é convexo. Um método local, seja o SLP ou o SLSQP, pode parar
-num ponto que satisfaz as condições de ótimo local sem ser o de menor custo. Na
-fazenda `freestall-midwest` com preços brasileiros, a versão com uma partida só
-ficou 1,1% mais cara que o SLSQP na lactação, com uma formulação 10% acima.
-Com as três partidas, o SLP não ficou mais caro em nenhuma das 312 formulações
-das 8 fazendas de teste.
-
-A semente é fixa, então o resultado continua determinístico: a mesma entrada
-sempre dá a mesma ração. O custo é o tempo, que ficou de 2 a 3 vezes maior, de
-30 a 110 ms por formulação, parecido com uma execução do SLSQP. As três
-partidas não garantem o ótimo global; elas reduzem a chance de parar num ótimo
-local ruim.
+Esse é o otimizador do add-on. Ele aceita só o padrão NASEM; um problema NRC é
+recusado com erro.
 
 ### Otimizador original do RuFaS
 
@@ -333,16 +315,13 @@ Execute uma vez com cada opção e compare:
 - número de iterações;
 - margem das restrições.
 
-O SLP é determinístico porque o add-on define um ponto inicial determinístico,
-e o `LinearRationOptimizer` não chama o gerador aleatório do Python para
-construir esse ponto. Os dois pontos extras são sorteados com semente fixa
-(`numpy.random.default_rng(0)`), então também se repetem a cada execução. O
-`RationOptimizer` original do RuFaS, ao contrário, usa um ponto inicial
-aleatório sem semente fixa quando não existe uma ração anterior. Isso explica por que
-duas execuções do SLSQP podem ter trajetórias e resultados diferentes. Para
-comparar métodos, repita o SLSQP com várias sementes/execuções e informe a
-variação observada; não compare uma única execução aleatória com o resultado
-determinístico do SLP como se ambos tivessem recebido o mesmo ponto inicial.
+O simplex é determinístico: parte da ração anterior, ou dos limites dos
+alimentos escalados até o DMI exigido, e os níveis de consumo testados são
+fixos. Não há sorteio. O `RationOptimizer` original do RuFaS, ao contrário, usa
+um ponto inicial aleatório sem semente fixa quando não existe uma ração
+anterior. Isso explica por que duas execuções do SLSQP podem ter trajetórias e
+resultados diferentes. Para comparar métodos, repita o SLSQP com várias
+sementes/execuções e informe a variação observada.
 
 ## Preços reais e fazendas de teste
 
@@ -393,7 +372,7 @@ registrados na coluna `tratamento` do CSV:
 - põe um teto prático de 0,3, 0,15 e 0,2 kg MS/dia em calcário, sal e premix.
 
 O teto existe porque o RuFaS não tem uma restrição de máximo para minerais. Com
-o calcário a R$ 0,10/kg, o SLP chegou a usar 6,9 kg/dia e o SLSQP 4,1 kg/dia,
+o calcário a R$ 0,10/kg, os otimizadores chegaram a usar de 4 a 7 kg/dia,
 como enchimento barato de matéria seca. Isso é uma propriedade do modelo, não
 um erro de conta, e o teto é uma premissa que pode ser alterada na página.
 
@@ -445,16 +424,23 @@ alimento 176 repetido, e o próprio RuFaS recusa o arquivo
 .venv\Scripts\python -m addon_rufas.summarize results\fazendas\freestall-midwest
 ```
 
-No modo `compare`, o SLP conduz a simulação e o SLSQP resolve em sombra o mesmo
-problema, então cada linha do resultado é um par com entradas idênticas. Nas
-8 fazendas foram 312 pares (13 formulações por lote × 3 lotes × 8):
+No modo `compare`, o simplex conduz a simulação e o SLSQP resolve em sombra o
+mesmo problema, então cada linha do resultado é um par com entradas idênticas.
+Nas 8 fazendas foram 312 pares (13 formulações por lote × 3 lotes × 8):
 
-- os dois otimizadores formularam com sucesso em 100% dos casos, sem nenhuma
-  re-tentativa, corte de leite ou ração de fallback;
-- o SLP **não ficou mais caro** (diferença acima de 0,1%) em nenhum par;
-- nas duas fazendas Midwest, o SLP ficou 0,05% mais barato na lactação:
-  R$ 577/ano no rebanho de 100 vacas e R$ 5.326/ano no de 1.000;
-- nas outras seis fazendas, os dois chegaram à mesma ração.
+- o simplex formulou com sucesso em 100% dos casos; o SLSQP falhou em 2
+  (openlot-midwest);
+- nenhuma re-tentativa, corte de leite ou ração de fallback;
+- nas seis fazendas não Midwest, os dois chegaram à mesma ração;
+- nas duas fazendas Midwest, o simplex ficou mais caro na lactação: 0,60% na
+  freestall (11 de 39 pares acima de 0,1%, o pior com 1,08%) e 0,31% na open
+  lot (9 de 39). Isso dá cerca de R$ 7 mil/ano no rebanho de 100 vacas e
+  R$ 31 mil/ano no de 1.000. A causa é a troca entre grão e silagem, descrita
+  em [Limite do método](#limite-do-método).
+
+Na fazenda de exemplo do RuFaS (preços genéricos), o simplex foi mais barato
+em 6 de 39 pares. O tempo por formulação foi de 23 a 52 ms no simplex e de 10 a
+73 ms no SLSQP.
 
 A tabela por fazenda está em
 [`scenarios/fazendas/README.md`](scenarios/fazendas/README.md), e a análise, no
@@ -535,7 +521,7 @@ dados da vaca
   -> NASEMRequirementsCalculator.calculate_requirements
   -> funções privadas de cada nutriente
   -> NutritionRequirements
-  -> RationOptimizer / LinearRationOptimizer
+  -> RationOptimizer / SimplexRationOptimizer
   -> restrições da dieta
 ```
 
@@ -555,15 +541,15 @@ as listas NRC e NASEM.
 
 | Restrição | Função de origem no RuFaS | Expressão original | Classificação da função original | Forma usada no LP |
 |---|---|---|---|---|
-| Energia total | `NE_total_constraint` | `max(oferta_manutencao, oferta_crescimento, oferta_lactacao) - requisito_total` | **Não linear** | Linearização local por diferenças finitas. |
-| Energia de manutenção e atividade | `NE_maintenance_and_activity_constraint` | `oferta_manutencao(x) - (requisito_manutencao + atividade)` | **Não linear** | Linearização local por diferenças finitas. |
-| Energia de lactação | `NE_lactation_constraint` | `oferta_lactacao(x) - (requisito_lactacao + gestacao)` | **Não linear** | Linearização local por diferenças finitas. |
-| Energia de crescimento | `NE_growth_constraint` | `oferta_crescimento(x) - requisito_crescimento` | **Não linear** | Linearização local por diferenças finitas. |
-| Energia líquida NASEM | `NASEM_net_energy_constraint` | `eficiência * energia_metabolizável_NASEM(x) - requisito_total` | **Não linear** | Linearização local por diferenças finitas. |
+| Energia total | `NE_total_constraint` | `max(oferta_manutencao, oferta_crescimento, oferta_lactacao) - requisito_total` | **Não linear** | Não usada: só existe no padrão NRC. |
+| Energia de manutenção e atividade | `NE_maintenance_and_activity_constraint` | `oferta_manutencao(x) - (requisito_manutencao + atividade)` | **Não linear** | Não usada: só existe no padrão NRC. |
+| Energia de lactação | `NE_lactation_constraint` | `oferta_lactacao(x) - (requisito_lactacao + gestacao)` | **Não linear** | Não usada: só existe no padrão NRC. |
+| Energia de crescimento | `NE_growth_constraint` | `oferta_crescimento(x) - requisito_crescimento` | **Não linear** | Não usada: só existe no padrão NRC. |
+| Energia líquida NASEM | `NASEM_net_energy_constraint` | `eficiência * energia_metabolizável_NASEM(x) - requisito_total` | **Não linear** | Linear com DMI e amido fixados na ração atual; recalculados a cada rodada. |
 | Cálcio | `calcium_constraint` | `soma(x_i * Ca_i * digestibilidade_i) - requisito_Ca` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
 | Fósforo | `phosphorus_constraint` | `soma(x_i * P_i * digestibilidade_i) - max(requisito_NASEM, requisito_processo)` | **Linear** | Já é uma soma linear; entra diretamente no LP. |
-| Proteína metabolizável mínima | `protein_constraint_lower` | `oferta_proteina_metabolizavel(x) - requisito_proteina` | **Não linear** | Linearização local por diferenças finitas. |
-| Proteína metabolizável máxima | `protein_constraint_upper` | `fator_superior * requisito_inicial - oferta_proteina_metabolizavel(x)` | **Não linear** | Linearização local por diferenças finitas. |
+| Proteína metabolizável mínima | `protein_constraint_lower` | `oferta_proteina_metabolizavel(x) - requisito_proteina` | **Não linear** | Duas linhas (uma por ramo do `min()`), com DMI, % de concentrado e desconto do NDT fixados na ração atual. |
+| Proteína metabolizável máxima | `protein_constraint_upper` | `fator_superior * requisito_inicial - oferta_proteina_metabolizavel(x)` | **Não linear** | Uma linha, com o ramo do `min()` que é o menor na ração atual. |
 | FDN mínima | `NDF_constraint_lower` | `soma(x_i*NDF_i)/soma(x_i) - limite_minimo` | **Não linear como função escrita** | Transformação algébrica exata para `soma(x_i*NDF_i) - limite_minimo*soma(x_i) >= 0`, desde que DMI seja positivo. |
 | FDN máxima | `NDF_constraint_upper` | `limite_maximo - soma(x_i*NDF_i)/soma(x_i)` | **Não linear como função escrita** | Transformação algébrica exata para `limite_maximo*soma(x_i) - soma(x_i*NDF_i) >= 0`, desde que DMI seja positivo. |
 | FDN de forragem mínima | `forage_NDF_constraint` | `100*soma(x_i*FDN_foragem_i)/soma(x_i) - limite_minimo` | **Não linear como função escrita** | Transformação algébrica exata para uma soma linear, desde que DMI seja positivo. |
@@ -586,9 +572,11 @@ os limites são constantes e o DMI é positivo em uma ração válida. Multiplic
 cada desigualdade pelo DMI não muda o seu sentido e elimina o denominador.
 Assim, a região viável dessas quatro restrições é exatamente representável por
 uma desigualdade linear. A tabela chama isso de “transformação algébrica
-exata”, e não de aproximação numérica. O SLP atual, contudo, mantém as funções
-originais do RuFaS e aplica o mecanismo geral de linearização a todas elas; ele
-não substitui essas quatro funções por versões reescritas manualmente.
+exata”, e não de aproximação numérica. É essa forma que o simplex usa.
+
+O add-on usa só o padrão **NASEM**. As quatro restrições de energia do padrão
+NRC aparecem na tabela por completude, mas o `SimplexRationOptimizer` recusa um
+problema NRC. As fazendas de teste e a página usam NASEM.
 
 As restrições de energia e proteína são não lineares de fato. Exemplos da
 origem dessa não linearidade são:
@@ -604,97 +592,128 @@ origem dessa não linearidade são:
   dependentes do DMI e do peso e `min(proteina_microbial_por_TDN,
   proteina_microbial_por_RDP)`.
 
-### Linearização usada pelo SLP, passo a passo
+### Linearização usada pelo simplex, passo a passo
 
-O `LinearRationOptimizer` herda do `RationOptimizer` a configuração, os limites,
-a lista de restrições e as próprias funções `fun`. Ele só intercepta a chamada
-ao `scipy.optimize.minimize`: em vez de executar SLSQP, usa os mesmos dados para
-resolver LPs com `scipy.optimize.linprog(method="highs")`. Nenhuma equação
-NASEM, NRC ou de suprimento nutricional é reescrita no add-on.
+O `SimplexRationOptimizer` (`addon_rufas/simplex_ration_optimizer.py`) herda do
+`RationOptimizer` a configuração, os limites, a lista de restrições NASEM e as
+próprias funções `fun`. Ele só intercepta a chamada ao
+`scipy.optimize.minimize`: em vez de executar o SLSQP, monta um problema linear
+no PuLP e o resolve pelo **método simplex** do HiGHS
+(`pulp.HiGHS(solver="simplex")`). Não usa derivada, gradiente nem diferença
+finita.
 
-Se `g_j(x) >= 0` é a restrição `j` e `x` é a ração atual, o método calcula
-primeiro o valor exato `g_j(x)` chamando a função original do RuFaS. Depois
-perturba uma variável por vez:
+A ideia parte de uma propriedade verificável no código do RuFaS: toda oferta
+NASEM é uma soma, alimento por alimento, de **quantidade × valor por kg**. O
+que torna a conta não linear são poucos números que dependem da ração inteira:
 
-```text
-h_i = 1e-4 * max(1, |x_i|)
-x^(i) = x + h_i * e_i
-J[j,i] = (g_j(x^(i)) - g_j(x)) / h_i
-```
+| Número da ração inteira | Onde o RuFaS usa |
+|---|---|
+| consumo de matéria seca (DMI) | digestibilidade da FDN e do amido, taxas de passagem, proteína endógena |
+| amido total | digestibilidade da FDN (`calculate_NASEM_dNDF`) |
+| % de concentrado | taxas de passagem da proteína (`_calculate_protein_passage_rates`) |
+| desconto do NDT por consumo | proteína microbiana (`calculate_nutrient_intake_discount`) |
 
-`J[j,i]` estima quanto a margem da restrição `j` muda quando a quantidade do
-alimento `i` aumenta 1 kg, mantendo os demais alimentos constantes. Isso é uma
-diferença finita para frente, não uma derivada simbólica. O conjunto de
-restrições usado pelo HiGHS é a expansão de primeira ordem:
-
-```text
-g_linear_j(z) = g_j(x) + J[j,:] * (z - x)
-```
-
-Como o LP espera desigualdades na forma `A_ub*z <= b_ub`, o código reorganiza
-`g_linear_j(z) >= margem` para:
+Se esses números forem **fixados** com os valores de uma ração conhecida, o
+valor por kg de cada alimento vira uma constante, e cada restrição vira uma
+desigualdade linear. O algoritmo é:
 
 ```text
--J[j,:] * z <= g_j(x) - J[j,:] * x - margem
+1. ração = ponto inicial (ração anterior, ou limites escalados até o DMI)
+2. calcula DMI, amido, % de concentrado e desconto do NDT com essa ração
+3. monta o PL com esses números fixos e resolve pelo simplex
+4. se a ração nova é igual à anterior (diferença < 1e-6 kg), terminou
+5. senão, ração = ração nova e volta ao passo 2 (no máximo 20 rodadas)
 ```
 
-O vetor `z` ainda obedece aos limites dos alimentos e a uma região de
-confiança:
+Quando a ração para de mudar, os números fixados são exatamente os da ração
+final. Nesse ponto o PL e o modelo não linear do RuFaS dão a mesma oferta. Nos
+testes, isso acontece em 3 a 11 rodadas; quando chega ao limite de 20, vale a
+melhor ração viável encontrada.
+
+#### Níveis de consumo
+
+O consumo de matéria seca muda o valor por kg de todos os alimentos (a
+digestibilidade da fibra e do amido e as taxas de passagem caem quando a vaca
+come mais). Com o consumo fixado em cada rodada, o simplex não enxerga esse
+efeito e tende a parar sempre perto do consumo de partida. Por isso o
+`_solve` repete o procedimento seis vezes e fica com a ração viável mais
+barata:
 
 ```text
-max(lower_i, x_i - trust) <= z_i <= min(upper_i, x_i + trust)
+1 vez com o consumo livre (entre o mínimo e o máximo do RuFaS)
+5 vezes com o consumo fixado (soma(x_i) = DMI_k), em 5 níveis igualmente
+  espaçados entre o DMI mínimo e o máximo do RuFaS
 ```
 
-Essa região impede que a aproximação de primeira ordem seja usada muito longe
-do ponto em que foi calculada. O tamanho inicial é o DMI atual, limitado
-inferiormente a 1 kg. O LP minimiza o custo da dieta `preco @ z`, que é linear
-porque preço e quantidade aparecem apenas como soma `soma(preco_i*z_i)`.
+#### Limite do método
 
-#### Quando a primeira linearização é inviável
+Fixar os números da ração inteira deixa o método simples, mas tem um custo. O
+PL não vê que **trocar um alimento muda o valor por kg dos outros**. Por
+exemplo, trocar silagem de milho por milho grão aumenta o amido e a fração de
+concentrado. Isso reduz a digestibilidade da fibra e muda a passagem da
+proteína de todos os alimentos. Com os números fixos, o grão parece mais barato
+do que é; ao recalcular os números, a ração não fecha a proteína e a energia, e
+a iteração para num ponto em que o grão continua na ração.
 
-Uma linearização local pode ser inviável mesmo quando a função não linear
-original possui uma solução viável mais distante. Por isso, `_linear_step`
-tenta primeiro o LP dentro da região de confiança e depois tenta novamente sem
-essa restrição de distância, mas ainda respeitando os limites dos alimentos.
-Se continuar inviável, executa uma fase 1: cria uma variável de folga `s_j >= 0`
-para cada restrição e resolve:
+Na prática, o simplex pode parar numa ração viável um pouco mais cara que a
+do SLSQP quando a escolha é entre grão e silagem. Os números estão em
+[Execução e resultado](#execução-e-resultado). Um método que enxerga essas
+interações precisa das derivadas das funções do RuFaS (o SLP da branch
+`integracao-rufas` fazia isso por diferenças finitas).
+
+Os valores por kg não são reescritos à mão: o código chama as funções de oferta
+do próprio RuFaS para 1 kg de cada alimento (`_rows`), por exemplo
+`calculate_NASEM_digestible_energy([1 kg do alimento], DMI, peso, amido)`.
+
+#### As linhas do PL
+
+Cada linha corresponde a uma restrição de `RationOptimizer.set_constraints`:
+
+| Restrição do RuFaS | Linha do PL (`soma(coef_i * x_i) >= limite`) |
+|---|---|
+| `calcium_constraint` | Ca absorvível por kg × `x_i` ≥ exigência de Ca |
+| `phosphorus_constraint` | P absorvível por kg × `x_i` ≥ maior exigência de P |
+| `protein_constraint_lower` | **duas linhas**, uma para cada ramo do `min()` (abaixo) |
+| `protein_constraint_upper` | proteína pelo ramo que é o menor na ração atual ≤ limite superior |
+| `NDF_constraint_lower` / `upper` | `soma(x_i * (FDN_i - mínimo)) >= 0` e `soma(x_i * (máximo - FDN_i)) >= 0` |
+| `forage_NDF_constraint` | `soma(x_i * (FDN_forragem_i - mínimo)) >= 0` |
+| `fat_constraint` | `soma(x_i * (máximo - EE_i)) >= 0` |
+| `DMI_constraint_lower` / `upper` | `soma(x_i)` entre os dois limites |
+| `NASEM_net_energy_constraint` | eficiência × (energia digestível por kg × `x_i` − perdas de gás e urina) ≥ exigência |
+
+A proteína metabolizável do RuFaS é
+`0,64 × min(microbiana_por_NDT, microbiana_por_PDR) + PNDR digestível + 4,72 g/kg MS`.
+O `min()` parece não linear, mas `min(a, b) >= R` é o mesmo que `a >= R` **e**
+`b >= R`. Por isso ele vira duas linhas lineares, sem aproximação.
+
+As linhas de FDN, FDN de forragem e gordura são as restrições do RuFaS
+multiplicadas pelo DMI, que é positivo. É uma transformação exata, como
+explicado na seção anterior.
+
+#### Quando o PL não tem solução
+
+Com os números fixados numa ração ruim, por exemplo o ponto inicial, o PL pode
+não ter solução mesmo que exista uma ração viável. Nesse caso o código usa a
+**fase 1 do simplex**: acrescenta uma folga `s_j >= 0` a cada linha e minimiza
+a soma das folgas relativas:
 
 ```text
-minimizar soma(s_j)
-sujeito a -J*z - s <= g(x) - J*x - margem
+minimizar soma(s_j / max(1, |limite_j|))
+sujeito a soma(coef_ji * x_i) + s_j >= limite_j
 ```
 
-Essa fase não é a solução econômica final. Ela procura o ponto que reduz o
-máximo possível da violação linearizada, permitindo que a próxima iteração
-comece de uma aproximação mais útil.
+O resultado é a ração que menos deixa de cumprir as exigências. Os números são
+recalculados com ela, e a rodada seguinte volta ao PL de custo. Se nem assim
+existe ração, o otimizador devolve `success=False`, e o RuFaS faz as
+re-tentativas dele.
 
-#### Aceitação do passo e penalidade
+#### Verificação final
 
-O candidato não é aceito apenas porque satisfaz o LP aproximado. O código
-reavalia as funções originais e calcula a função mérito:
-
-```text
-merito(x) = preco @ x
-          + penalidade * soma(max(-g_j(x), 0))
-```
-
-O candidato é aceito somente se reduzir essa função além da tolerância
-numérica. A penalidade começa em 1 e é atualizada a partir dos maiores valores
-absolutos dos duais do LP, multiplicados por 2. Se o candidato não melhorar o
-mérito, a região de confiança é dividida por 2 e o LP é tentado novamente em
-uma região menor. O processo para quando o passo é menor que a tolerância de
-passo ou quando atinge 40 iterações.
-
-#### Restauração e verificação final
-
-Depois das iterações econômicas, `_restore_feasibility` avalia novamente as
-funções não lineares originais. Para cada rodada, mede
-`max(-g_j(x), 0)` e chama o mesmo LP linearizado, mas aumenta a margem exigida
-para `2*violacao + 1e-7`. São permitidas até 10 rodadas. Finalmente, o sucesso
-não é inferido da aproximação: o código só retorna `success=True` se todas as
-funções originais do RuFaS, avaliadas no ponto final, forem maiores ou iguais a
-zero. Portanto, o LP guia a busca, mas a viabilidade reportada é verificada no
-modelo original.
+O sucesso não é deduzido do PL. Cada ração do simplex é avaliada pelas funções
+originais do RuFaS, e só conta como viável se **todas** derem `>= 0`, a mesma
+checagem que o RuFaS faz (`is_constraint_violated`). Para não falhar por
+arredondamento, cada linha pede uma folga relativa de `1e-5` acima da
+exigência. O otimizador devolve a ração viável mais barata encontrada.
 
 ## Origem dos nomes dos alimentos
 

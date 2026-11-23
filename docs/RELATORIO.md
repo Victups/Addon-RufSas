@@ -4,24 +4,18 @@
 
 ## Resumo
 
-O RuFaS simula uma fazenda leiteira dia a dia e formula a dieta de cada lote com o otimizador não linear SLSQP, a partir de um ponto inicial aleatório. Este trabalho desenvolve um add-on que se liga ao RuFaS sem alterar o código dele e traz duas alternativas baseadas em programação linear:
+O RuFaS simula uma fazenda leiteira dia a dia e formula a dieta de cada lote com o otimizador não linear SLSQP, a partir de um ponto inicial aleatório. Este trabalho desenvolve um add-on que se liga ao RuFaS sem alterar o código dele e traz duas alternativas baseadas em programação linear, ambas em **PuLP**:
 
-- **SLP (programação linear sequencial):** resolve o mesmo modelo do RuFaS com o solver HiGHS e roda dentro da simulação.
-- **Modelo NRC 2001 clássico em PuLP:** cobre energia, PDR, PNDR, proteína metabolizável, fibra, minerais e vitaminas.
+- **Simplex sobre as restrições NASEM do RuFaS:** as mesmas restrições do SLSQP, resolvidas pelo método simplex. Os números que dependem da ração inteira (consumo, amido, % de concentrado e desconto do NDT) são fixados a cada rodada, o que torna cada restrição linear; depois são recalculados até a ração parar de mudar. Roda dentro da simulação.
+- **Modelo NRC 2001 clássico:** cobre energia, PDR, PNDR, proteína metabolizável, fibra, minerais e vitaminas.
 
-O SLP foi comparado com o SLSQP repetido 100 vezes com sementes diferentes, em seis casos de teste:
-- empata com o **melhor** SLSQP em 5 casos;
-- é 0,65% mais barato do que **todas** as execuções no sexto;
-- é de 0 a 1,3% mais barato do que uma execução típica;
-- é determinístico, com tempo por formulação parecido com o de uma execução do SLSQP.
+**Casos de teste.** Contra o SLSQP repetido 100 vezes com sementes diferentes, o simplex empata com o **melhor** SLSQP em 2 casos e é 0,65% mais barato do que **todas** as execuções no terceiro, com metade do tempo de uma execução.
 
-**Simulação de um ano.** Foram 8 fazendas montadas com os exemplos do RuFaS e preços brasileiros de set–nov/2026, com 312 formulações pareadas. Nelas o SLP nunca ficou mais caro. Nas listas de alimentos com mais ótimos locais, ficou 0,05% mais barato na lactação, o que dá de R$ 577 a R$ 5.326 por ano conforme o rebanho.
+**Simulação de um ano.** Em 8 fazendas montadas com os exemplos do RuFaS e preços brasileiros de set–nov/2026 (312 formulações pareadas), o simplex formulou com sucesso em 100% dos casos (o SLSQP falhou em 2). Em 6 fazendas os dois chegaram à mesma ração. Nas 2 fazendas em que a escolha é entre milho grão e silagem, o simplex ficou 0,3% a 0,6% mais caro na lactação, porque os números fixados não mostram que mais grão reduz a digestibilidade da fibra.
 
-**Ótimos locais.** Com uma única partida, o SLP chegou a ficar 10% mais caro numa formulação. O problema não é convexo, e por isso o SLP passou a usar 3 partidas com semente fixa.
+**Sensibilidade.** O modelo NRC traz a análise clássica: preços-sombra, faixas de validade e custos reduzidos, todos conferidos por re-solução.
 
-**Sensibilidade.** O modelo PuLP traz a análise clássica: preços-sombra, faixas de validade e custos reduzidos, todos conferidos por re-solução.
-
-**Preços reais.** A dieta de uma vaca de 35 kg de leite custa R$ 19,73 por dia, com renda sobre o custo de alimentação (IOFC) de R$ 74,84. A silagem de milho é o preço que mais pesa: ±20% no preço dela muda o custo em ±10%.
+**Preços reais.** A dieta de uma vaca de 35 kg de leite custa R$ 19,74 por dia, com renda sobre o custo de alimentação (IOFC) de R$ 74,83. A silagem de milho é o preço que mais pesa: ±20% no preço dela muda o custo em ±10%.
 
 ## 1. Introdução
 
@@ -49,7 +43,7 @@ Este trabalho investiga se uma formulação linear pode substituir a do RuFaS se
   - o **preço-sombra** de cada restrição, isto é, quanto custa uma unidade a mais de exigência;
   - a **faixa de validade** desse preço-sombra;
   - o **custo reduzido** de cada alimento fora da solução, isto é, quanto o preço precisa cair para o alimento entrar.
-- **Programação linear sequencial (SLP):** resolve um problema não linear por uma sequência de PLs, linearizando as restrições em volta do ponto atual dentro de uma região de confiança.
+- **Método simplex:** resolve um PL percorrendo os vértices da região viável até o de menor custo (Hillier e Lieberman, 2013). Quando não há vértice viável à vista, a **fase 1** minimiza a soma das folgas das restrições.
 - **Trabalho relacionado:** Brito (IFG, 2026), com o mesmo orientador, aplicou PL do NRC a uma fazenda de Goiás e mediu um aumento médio de 9,14% no IOFC. A seção 6 discute três pontos daquele modelo que este trabalho corrige.
 
 ## 4. Materiais e métodos
@@ -71,16 +65,21 @@ Este trabalho investiga se uma formulação linear pode substituir a do RuFaS se
 
   Os alimentos sem preço (concentrado de bezerra e misturas de subprodutos) foram precificados pelo método de Petersen, isto é, pelo valor da energia e da proteína do milho e do farelo de soja (`scenarios/fazendas/`).
 
-### 4.2 Otimizador SLP
+### 4.2 Otimizador simplex (restrições NASEM do RuFaS)
 - **Decisão:** kg de matéria seca de cada alimento por vaca por dia.
 - **Objetivo:** custo da dieta.
-- **Restrições:** as do RuFaS. Energia e proteína metabolizável são não lineares no RuFaS (desconto de NDT, taxas de passagem e `min()`).
+- **Restrições:** as NASEM do RuFaS (`RationOptimizer.set_constraints`): energia líquida, Ca, P, proteína metabolizável mínima e máxima, FDN, FDN de forragem, gordura e matéria seca.
+- **Por que dá para usar PL:** toda oferta NASEM é uma soma de **quantidade × valor por kg**. O valor por kg depende de quatro números da ração inteira: consumo, amido total, % de concentrado e desconto do NDT. Com esses números fixos, cada restrição é linear. Os valores por kg vêm das funções de oferta do próprio RuFaS, avaliadas para 1 kg de cada alimento.
+- **Casos especiais:**
+  - o `min()` da proteína microbiana vira duas linhas (`min(a, b) ≥ R` ⇔ `a ≥ R` e `b ≥ R`);
+  - as proporções da MS são multiplicadas pelo consumo, o que é exato.
 - **Iteração:**
-  1. lineariza as **funções do próprio RuFaS** por diferenças finitas;
-  2. resolve o PL com HiGHS numa região de confiança;
-  3. aceita o passo por uma função de mérito com penalidade tirada dos duais.
-- **Casos difíceis e fim:** quando a linearização fica inviável, dá um passo de fase 1. No fim, uma restauração garante que a ração atende às restrições não lineares verdadeiras.
-- **Pontos iniciais:** o ponto do RuFaS (a ração anterior, ou os limites escalados até o consumo) e mais 2 pontos sorteados com semente fixa. O SLP fica com a ração viável mais barata. O resultado é determinístico.
+  1. fixa os quatro números com a ração atual;
+  2. resolve o PL pelo simplex (PuLP + HiGHS, `solver="simplex"`); se não houver solução, usa a fase 1;
+  3. recalcula os números com a ração nova e repete até a ração parar de mudar (3 a 11 rodadas; no máximo 20).
+- **Níveis de consumo:** o procedimento roda com o consumo livre e com o consumo fixado em 5 níveis entre o mínimo e o máximo do RuFaS, e fica com a ração mais barata.
+- **Verificação:** uma ração só conta como viável se passar nas funções originais do RuFaS (todas `≥ 0`).
+- Não usa derivadas, e o resultado é determinístico.
 
 ### 4.3 Modelo NRC em PuLP
 É um PL linear com:
@@ -99,7 +98,7 @@ As proporções da MS viram restrições lineares sem aproximação. O `min()` d
 ### 4.4 Integração com o RuFaS
 - **Otimizador:** subclasse de `RationOptimizer`, trocando só o solver em tempo de execução.
 - **Simulação:** o runner `addon_rufas/run.py` troca o otimizador dos lotes, inclusive nos processos paralelos do RuFaS.
-- **Modo `compare`:** o SLP conduz a simulação, e o SLSQP resolve em sombra o mesmo problema, o que dá pares comparáveis.
+- **Modo `compare`:** o simplex conduz a simulação, e o SLSQP resolve em sombra o mesmo problema, o que dá pares comparáveis.
 - **Re-tentativas:** cada evento de reformulação registra as tentativas, os cortes de produção de leite e o uso de ração de fallback.
 
 ### 4.5 Análise de sensibilidade
@@ -109,56 +108,53 @@ As proporções da MS viram restrições lineares sem aproximação. O `min()` d
 ### 4.6 Indicadores econômicos
 - **Custo da dieta:** R$ por vaca por dia.
 - **IOFC:** leite × preço do leite − custo da dieta.
-- **Economia SLP contra SLSQP:** em % e em R$ por vaca por dia, e anualizada pelo rebanho.
+- **Diferença simplex contra SLSQP:** em % e em R$ por vaca por dia, e anualizada pelo rebanho.
 
 ## 5. Resultados
 
-### 5.1 SLP contra o SLSQP repetido 100 vezes
+### 5.1 Simplex contra o SLSQP repetido 100 vezes
 
-Seis casos de teste, com alimentos reais da biblioteca e preços de exemplo:
+Três casos de teste NASEM, com alimentos reais da biblioteca e preços de exemplo:
 
-| Caso | SLP | Melhor SLSQP | Média SLSQP | Pior SLSQP | SLP × melhor | SLP × média | ms SLP | ms SLSQP |
+| Caso | Simplex | Melhor SLSQP | Média SLSQP | Pior SLSQP | Simplex × melhor | Simplex × média | ms simplex | ms SLSQP |
 |---|---|---|---|---|---|---|---|---|
-| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 53 | 91 |
-| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 48 | 96 |
-| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | −0,65% | −0,92% | 113 | 97 |
-| NRC ×0,8 | 0,2696 | 0,2696 | 0,2696 | 0,2696 | 0,00% | 0,00% | 27 | 70 |
-| NRC ×1,0 | 0,2911 | 0,2911 | 0,2949 | 0,2978 | 0,00% | −1,28% | 113 | 59 |
-| NRC ×1,2 | 0,3546 | 0,3546 | 0,3581 | 0,3652 | 0,00% | −0,97% | 46 | 83 |
+| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 33 | 112 |
+| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 38 | 97 |
+| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | −0,65% | −0,92% | 58 | 109 |
 
-- O SLP empata com o melhor de 100 SLSQPs em 5 casos e fica abaixo de todos no NASEM ×1,2, onde o SLSQP para num ótimo local qualquer que seja o ponto de partida.
-- O próprio SLSQP varia até 3% conforme a semente.
-- Uma execução do SLP (3 partidas) leva de 27 a 113 ms, parecido com uma execução do SLSQP. Para chegar ao mesmo custo, o SLSQP precisaria de várias execuções.
+- O simplex empata com o melhor de 100 SLSQPs em 2 casos e fica abaixo de todos no NASEM ×1,2, onde o SLSQP para num ótimo local qualquer que seja o ponto de partida.
+- Uma execução do simplex leva de 33 a 58 ms, contra 97 a 112 ms de uma execução do SLSQP.
 
 ### 5.2 Simulação de um ano: 8 fazendas com preços brasileiros (312 formulações pareadas)
 
-| Fazenda | Custo lactação SLP (R$/vaca/dia) | SLSQP | SLP mais barato | SLP mais caro | Economia/ano |
+| Fazenda | Custo lactação simplex (R$/vaca/dia) | SLSQP | Simplex mais barato | Simplex mais caro | Diferença/ano |
 |---|---|---|---|---|---|
-| freestall-midwest (100 vacas) | 32,56 | 32,58 | 2 de 39 | 0 | R$ 577 |
+| freestall-midwest (100 vacas) | 32,55 | 32,35 | 0 | 11 de 39 | R$ 7.048 a mais |
 | freestall-intermountain | 23,66 | 23,66 | 0 | 0 | — |
 | freestall-northeast | 23,52 | 23,52 | 0 | 0 | — |
 | freestall-southwest | 23,66 | 23,66 | 0 | 0 | — |
-| openlot-midwest (1.000 vacas) | 27,59 | 27,61 | 4 de 39 | 0 | R$ 5.326 |
+| openlot-midwest (1.000 vacas) | 27,43 | 27,34 | 0 | 9 de 39 | R$ 31.392 a mais |
 | openlot-intermountain | 19,84 | 19,84 | 0 | 0 | — |
 | openlot-northeast | 19,73 | 19,73 | 0 | 0 | — |
 | openlot-southwest | 19,84 | 19,84 | 0 | 0 | — |
 
 - "Mais barato" e "mais caro" contam diferenças acima de 0,1%.
-- A economia por ano é a diferença média na lactação × número de vacas × 365.
-- Os dois otimizadores formularam com sucesso em 100% dos casos.
+- A diferença por ano é a diferença média na lactação × número de vacas × 365.
+- O simplex formulou com sucesso em 100% dos casos; o SLSQP falhou em 2 formulações da openlot-midwest.
 - Nenhum evento precisou de nova tentativa, corte de leite ou ração de fallback.
-- Na fazenda de exemplo com preços genéricos do RuFaS, o SLP foi mais barato em 4 de 13 formulações na lactação (0,08%) e em 3 de 13 no pré-parto (0,43%), e empatou nas novilhas.
+- Na fazenda de exemplo com preços genéricos do RuFaS, o simplex foi mais barato em 6 de 39 formulações e nunca mais caro.
+- Tempo por formulação: 23 a 52 ms no simplex e 10 a 73 ms no SLSQP.
 
-**Ótimo local.** A primeira rodada usava uma única partida. Nela, o SLP ficou 1,1% mais caro na lactação da freestall-midwest, com uma formulação 10% acima do SLSQP. O problema não é convexo: energia e proteína metabolizável dependem do consumo de forma não linear. Com 3 partidas de semente fixa, a diferença sumiu, e o SLP passou a ficar 0,05% mais barato. O custo foi deixar cada formulação 2 a 3 vezes mais lenta, de 30 a 110 ms, o que não pesa numa simulação que reformula a dieta 13 vezes por ano.
+**Por que o simplex perde nas fazendas Midwest.** Nessas listas, a escolha é entre milho grão e silagem de milho. O simplex escolheu grão e o SLSQP, silagem. Com os quatro números da ração fixos, o PL não vê que mais grão aumenta o amido e o concentrado e, com isso, reduz a digestibilidade da fibra e muda a passagem da proteína de **todos** os alimentos. Num caso analisado, o PL montado na própria ração ótima do SLSQP indicou uma ração com grão R$ 0,29 mais barata. Conferida no modelo real do RuFaS, ela ficou 103 g abaixo da exigência de proteína e também abaixo da de energia. Enxergar esse efeito cruzado exige as derivadas das funções do RuFaS. Os 5 níveis de consumo reduziram a diferença pela metade (de 0,9% para 0,6% na freestall), mas não a eliminaram.
 
 ### 5.3 Sensibilidade
 
 Os exemplos usam os alimentos padrão e os preços de exemplo.
 
 - **Proteína metabolizável +15%:**
-  - o custo vai de 0,2918 para 0,5421 por vaca/dia, com custo marginal de 0,00073 por grama;
-  - entram silagem de milho, feno, farinha de sangue e mineral, e a silagem de leguminosa diminui;
-  - ficam no limite cálcio, proteína metabolizável e FDN máximo.
+  - o custo vai de 0,2918 para 0,2998 por vaca/dia (+2,7%); o SLSQP chega a 0,3017;
+  - a mistura de capim e leguminosa sai, e a silagem de leguminosa sobe para 30 kg MS;
+  - a proteína metabolizável fica no limite.
 - **Cálcio −10%:** o custo cai 9,8%, trocando silagem de mistura de capim e leguminosa por silagem de leguminosa.
 - **Modelo NRC (caso de teste do NRC, vaca de 680 kg com 35 kg de leite):**
   - a energia tem preço-sombra de 0,239 por Mcal, válido entre 33,1 e 35,7 Mcal. Dentro dessa faixa, o custo previsto pelo preço-sombra é igual ao da re-solução; acima dela, o custo sobe mais;
@@ -175,13 +171,13 @@ Os exemplos usam os alimentos padrão e os preços de exemplo.
 | Casca de soja | R$ 1.030/t | 1,14 |
 | Leite (CEPEA, Goiás) | R$ 2,79/litro | 2,70/kg |
 
-Só com esses 5 alimentos, a vaca padrão (35 kg de leite) recebe 17,3 kg de silagem de milho, 9,5 kg de casca de soja, 4,1 kg de farelo e 0,3 kg de caroço de algodão (kg de MS). O custo é de R$ 30,26 por dia, com IOFC de R$ 64,31. O SLP e o SLSQP chegam à mesma ração.
+Só com esses 5 alimentos, a vaca padrão (35 kg de leite) recebe 17,3 kg de silagem de milho, 9,5 kg de casca de soja, 4,1 kg de farelo e 0,3 kg de caroço de algodão (kg de MS). O custo é de R$ 30,26 por dia, com IOFC de R$ 64,31. O simplex e o SLSQP chegam à mesma ração.
 
 Com calcário e sal disponíveis (cenário `planilha-2026.json`), o cálcio deixa de vir de alimentos caros:
 
 | Modelo | Custo (R$/vaca/dia) | IOFC (R$/vaca/dia) |
 |---|---|---|
-| SLP | 19,73 | 74,84 |
+| Simplex | 19,74 | 74,83 |
 | SLSQP | 19,72 | 74,85 |
 | NRC (PuLP), que também exige minerais e vitaminas | 25,64 | 68,93 |
 
@@ -189,11 +185,11 @@ Com calcário e sal disponíveis (cenário `planilha-2026.json`), o cálcio deix
 
 Re-solução com cada preço alterado, mantendo os outros; a tabela completa está em `scenarios/precos/sensibilidade.md`.
 
-| Ingrediente | Custo com −20% / +20% (SLP) | Custo com −20% / +20% (NRC) | Ração muda? |
+| Ingrediente | Custo com −20% / +20% (simplex) | Custo com −20% / +20% (NRC) | Ração muda? |
 |---|---|---|---|
-| Silagem de milho | −10,4% / +10,4% | −5,3% / +5,3% | pouco (até 0,3 kg) |
-| Farelo de soja | −4,8% / +4,4% | −7,8% / +7,8% | SLP: com −20%, troca 3,8 kg de silagem por 1,4 kg de farelo |
-| Caroço de algodão | −5,4% / +5,1% | −5,6% / +5,6% | SLP: com −20%, +2,4 kg de caroço e −0,9 kg de farelo |
+| Silagem de milho | −10,6% / +10,6% | −5,3% / +5,3% | simplex: com +20%, −1,4 kg de silagem e +0,4 kg de farelo |
+| Farelo de soja | −4,7% / +4,4% | −7,8% / +7,8% | simplex: com −20%, troca 4,6 kg de silagem por 1,6 kg de farelo |
+| Caroço de algodão | −5,3% / +5,0% | −5,6% / +5,6% | simplex: com −20%, +2,4 kg de caroço e −0,9 kg de farelo |
 | Milho grão | 0 | −0,6% / +0,6% | não |
 | Casca de soja | 0 | 0 | não |
 
@@ -203,13 +199,9 @@ Re-solução com cada preço alterado, mantendo os outros; a tabela completa est
 
 ## 6. Discussão
 
-- **Ganho principal:** o ganho de custo do SLP contra o SLSQP é pequeno, mas nunca contra o SLP:
-  - de 0 a 1,3% contra uma execução típica nos casos de teste;
-  - 0,05% na lactação das fazendas com mais alimentos, que é de R$ 577 a R$ 5.326 por ano.
-
-  O ganho maior é de **confiabilidade**: o resultado é sempre o mesmo e não depende da sorte do ponto inicial, cuja variação chega a 3%.
-- **Ótimos locais:** o problema do RuFaS não é convexo. Uma única partida, do SLP ou do SLSQP, pode parar num ótimo pior, e com preços brasileiros a diferença chegou a 10% numa formulação. Várias partidas determinísticas resolvem o problema na prática, ao custo de um tempo parecido com o do SLSQP.
-- **Onde está o dinheiro:** o otimizador muda pouco o custo. O preço da silagem, que muda o custo em ±10% com ±20% de variação, e a disponibilidade de minerais baratos, que levou o custo de R$ 30,26 para R$ 19,73 por vaca/dia, pesam muito mais. A análise de sensibilidade é o que mostra isso ao produtor.
+- **Simplicidade contra custo:** o simplex resolve as restrições do RuFaS sem derivadas e é fácil de explicar: fixa os números da ração inteira, resolve um PL, recalcula e repete. Ele é determinístico, mais rápido que uma execução do SLSQP nos casos de teste e nunca falhou. O preço dessa simplicidade aparece quando a decisão é entre grão e silagem: ali o simplex fica 0,3% a 0,6% mais caro. Uma versão anterior deste trabalho, com programação linear sequencial (derivadas por diferenças finitas, branch `integracao-rufas`), não tinha essa perda e ficava 0,05% mais barata que o SLSQP, mas era bem mais difícil de explicar.
+- **Confiabilidade:** o resultado do simplex é sempre o mesmo, e o do SLSQP varia até 3% conforme o ponto inicial sorteado.
+- **Onde está o dinheiro:** o otimizador muda pouco o custo. O preço da silagem, que muda o custo em ±10% com ±20% de variação, e a disponibilidade de minerais baratos, que levou o custo de R$ 30,26 para R$ 19,74 por vaca/dia, pesam muito mais. A análise de sensibilidade é o que mostra isso ao produtor.
 - **Valor da sensibilidade:** os preços-sombra e as faixas dizem o que realmente limita o custo da dieta e até onde uma decisão de compra continua valendo. O RuFaS não dá essas informações.
 - **Peculiaridades do RuFaS** encontradas e mantidas, para fidelidade ao simulador:
   - o teor de fósforo da dieta nunca é atualizado e fica 0;
@@ -222,20 +214,21 @@ Re-solução com cada preço alterado, mantendo os outros; a tabela completa est
   - a eficiência da proteína do leite aparece como 0,97 no código e 0,67 no texto;
   - a restrição de energia compara energia digestível com exigência de energia líquida.
 - **Limitações:**
-  - o SLP acha um ótimo local nas restrições não lineares; as 3 partidas reduzem esse risco, mas não garantem o ótimo global;
+  - o simplex fixa os números da ração inteira em cada rodada e não enxerga o efeito cruzado entre alimentos; na troca entre grão e silagem, fica até ~1% mais caro que o SLSQP;
+  - o simplex usa só o padrão NASEM do RuFaS;
   - o modelo PuLP usa o NDT sem desconto por consumo e ainda não roda dentro da simulação;
   - as fazendas são os exemplos do RuFaS, americanos, com preços brasileiros, e não fazendas reais de Goiás;
   - os preços de volumosos e minerais não vêm do CEPEA, e não há notas fiscais. O premix é provisório, e os minerais têm preço de grau agrícola.
 
 ## 7. Conclusão
 
-A formulação linear substitui a do RuFaS sem perder fidelidade ao modelo:
-- custa o mesmo ou menos do que o melhor de 100 execuções do otimizador original;
-- nunca ficou mais cara em 312 formulações de 8 fazendas simuladas por um ano com preços brasileiros;
-- é determinística, com tempo parecido;
-- acrescenta a análise de sensibilidade que o simulador não tinha.
+O simplex em PuLP substitui o SLSQP do RuFaS usando as mesmas restrições NASEM:
+- custa o mesmo ou menos do que o melhor de 100 execuções do otimizador original nos casos de teste;
+- formulou com sucesso em todas as 312 formulações das 8 fazendas simuladas por um ano (o SLSQP falhou em 2);
+- empatou em 6 das 8 fazendas e ficou 0,3% a 0,6% mais caro nas 2 em que a escolha é entre grão e silagem;
+- é determinístico, mais simples de explicar e não usa derivadas.
 
-Em termos econômicos, trocar o otimizador rende pouco: até 0,05% do custo de alimentação da lactação, ou R$ 5,3 mil por ano num rebanho de 1.000 vacas. O valor maior para o produtor está na informação de decisão. A ração de menor custo com preços reais sai a R$ 19,73 por vaca/dia, com IOFC de R$ 74,84. A silagem é o insumo que mais move esse custo. Os minerais, mesmo com preço incerto, não mudam a decisão.
+Em termos econômicos, trocar o otimizador muda pouco o custo: menos de 1% do custo de alimentação da lactação, para mais ou para menos. O valor maior para o produtor está na informação de decisão. A ração de menor custo com preços reais sai a R$ 19,74 por vaca/dia, com IOFC de R$ 74,83. A silagem é o insumo que mais move esse custo. Os minerais, mesmo com preço incerto, não mudam a decisão.
 
 ## 8. Trabalhos futuros
 
@@ -243,6 +236,7 @@ Em termos econômicos, trocar o otimizador rende pouco: até 0,05% do custo de a
 - Levar o modelo NRC em PuLP para dentro da simulação.
 - Formular por animal em vez de por lote, como fez Brito.
 - Aplicar o desconto de NDT por nível de consumo.
+- Levar em conta, no simplex, o efeito do amido e do concentrado sobre o valor dos outros alimentos.
 
 ## Referências
 
@@ -252,7 +246,6 @@ Em termos econômicos, trocar o otimizador rende pouco: até 0,05% do custo de a
 - NRC (2001). *Nutrient Requirements of Dairy Cattle*, 7ª ed. National Academy Press.
 - RuFaS — Ruminant Farm Systems. https://github.com/RuminantFarmSystems/RuFaS
 - Huangfu, Q.; Hall, J. A. J. (2018). Parallelizing the dual revised simplex method. *Mathematical Programming Computation* (HiGHS).
-- Hillier, F. S.; Lieberman, G. J. *Introdução à Pesquisa Operacional*, 9ª ed. Porto Alegre: AMGH, 2013. Dualidade e análise de sensibilidade.
-- Nocedal, J.; Wright, S. J. *Numerical Optimization*, 2ª ed. Springer, 2006. Programação linear sequencial, regiões de confiança e funções de mérito.
+- Hillier, F. S.; Lieberman, G. J. *Introdução à Pesquisa Operacional*, 9ª ed. Porto Alegre: AMGH, 2013. Método simplex, fase 1, dualidade e análise de sensibilidade.
 - Petersen, W. E. (1932). A formula for evaluating feeds on the basis of digestible nutrients. *Journal of Dairy Science* 15(4): 293–297.
 - Planilha de preços de ingredientes para nutrição de vacas (R$/kg), compilada pela turma, 2026 (`scenarios/precos/planilha-2026.csv`).

@@ -9,7 +9,7 @@ O **RuFaS** (Ruminant Farm Systems) simula uma fazenda leiteira dia a dia. Para 
 | Otimizador | Arquivo | Modelo | Solver | Para que serve |
 |---|---|---|---|---|
 | **SLSQP** (original) | RuFaS, `RationOptimizer` | Restrições não lineares do RuFaS (NASEM/NRC) | SciPy SLSQP | Linha de base |
-| **SLP** (programação linear sequencial) | `addon_rufas/linear_ration_optimizer.py` | O mesmo modelo do RuFaS, linearizado a cada iteração | HiGHS (`scipy.optimize.linprog`) | Substituto direto do SLSQP dentro da simulação. É a comparação justa. |
+| **Simplex** (PuLP) | `addon_rufas/simplex_ration_optimizer.py` | As mesmas restrições NASEM do RuFaS, com os números da ração inteira fixados a cada rodada | **PuLP** + HiGHS, método simplex | Substituto direto do SLSQP dentro da simulação. É a comparação justa. |
 | **NRC clássico** | `addon_rufas/nrc_lp.py` | PL linear do NRC 2001, com PDR, PNDR, minerais e vitaminas | **PuLP** + HiGHS | Modelo de livro-texto, com preços-sombra exatos |
 
 ```
@@ -17,10 +17,10 @@ RufSas/RuFaS/ (cópia de referência, só leitura, commit 2114532)
         ▲  importado; nada é alterado
         │
 addon_rufas/
-├── linear_ration_optimizer.py   SLP: subclasse de RationOptimizer
+├── simplex_ration_optimizer.py  simplex (PuLP): subclasse de RationOptimizer
 ├── run.py                       roda a simulação RuFaS trocando o otimizador (slsqp | lp | compare)
 ├── instrument.py                registra custo, tempo e iterações de cada formulação (JSONL)
-├── summarize.py                 tabela comparativa SLSQP × SLP
+├── summarize.py                 tabela comparativa SLSQP × simplex
 ├── nrc_lp.py                    modelo NRC clássico em PuLP
 ├── web.py + templates/ static/  interface Flask
 tests/                           testes com alimentos reais da biblioteca do RuFaS
@@ -30,10 +30,10 @@ tests/                           testes com alimentos reais da biblioteca do RuF
 
 O add-on se conecta ao RuFaS só em tempo de execução, sem tocar nos arquivos dele:
 
-1. **Subclasse.** `LinearRationOptimizer(RationOptimizer)` herda a montagem do problema: alimentos, limites, exigências e funções de restrição. Só troca o solver.
-2. **Troca do solver.** Durante `attempt_optimization`, o método substitui `minimize` no módulo `ration_optimizer` por uma função que resolve com o SLP (`unittest.mock.patch.object`). O RuFaS segue o fluxo dele e recebe um `OptimizeResult` como se viesse do SLSQP.
+1. **Subclasse.** `SimplexRationOptimizer(RationOptimizer)` herda a montagem do problema: alimentos, limites, exigências e funções de restrição. Só troca o solver.
+2. **Troca do solver.** Durante `attempt_optimization`, o método substitui `minimize` no módulo `ration_optimizer` por uma função que resolve com o simplex (`unittest.mock.patch.object`). O RuFaS segue o fluxo dele e recebe um `OptimizeResult` como se viesse do SLSQP.
 3. **Troca do otimizador na simulação.** `addon_rufas/run.py` aponta `pen.RationOptimizer` para a classe escolhida. O RuFaS simula os lotes num `multiprocessing.Pool`, que no Windows usa *spawn*. Por isso a troca é refeita na importação do módulo, nos processos filhos, pelas variáveis `ADDON_RUFAS_OPTIMIZER` e `ADDON_RUFAS_OUTPUT`.
-4. **Modo `compare`.** O SLP conduz a simulação, e o SLSQP resolve **o mesmo problema** em sombra a cada formulação, com o estado aleatório salvo e restaurado. Isso dá pares diretamente comparáveis. Rodar `slsqp` e `lp` em separado não é comparável, porque os animais divergem depois da primeira ração diferente.
+4. **Modo `compare`.** O simplex conduz a simulação, e o SLSQP resolve **o mesmo problema** em sombra a cada formulação, com o estado aleatório salvo e restaurado. Isso dá pares diretamente comparáveis. Rodar `slsqp` e `lp` em separado não é comparável, porque os animais divergem depois da primeira ração diferente.
 
 ```powershell
 .venv\Scripts\python -m addon_rufas.run --optimizer compare -g -v errors -p scenarios\smoke\task_manager_metadata.json
@@ -50,7 +50,7 @@ O modelo NRC em PuLP roda na interface e nos testes. Ele **ainda não** substitu
 
 **Objetivo:** `min Σᵢ cᵢ·xᵢ`, com `cᵢ` = preço por kg de MS.
 
-### 3.2 O modelo do RuFaS e o SLP
+### 3.2 O modelo do RuFaS e o simplex
 
 As restrições do RuFaS (`RationOptimizer.set_constraints`) para vaca em lactação (NASEM) são:
 - energia líquida (NASEM);
@@ -63,16 +63,17 @@ As restrições do RuFaS (`RationOptimizer.set_constraints`) para vaca em lacta�
 
 Energia e proteína **não são lineares** em `x`: há desconto de NDT, taxas de passagem e um `min()` na proteína microbiana. As proporções em % da MS dividem por `Σx`.
 
-O SLP resolve esse mesmo modelo assim:
-1. Lineariza **as próprias funções do RuFaS** no ponto atual, por diferenças finitas: `g(x) + J·(z − x) ≥ 0`.
-2. Resolve o PL resultante com HiGHS dentro de uma região de confiança.
-3. Aceita o passo se a função de mérito `custo + μ·Σ violações` cair. O peso μ vem dos duais do próprio PL.
-4. Quando o PL linearizado é inviável, porque a linearização ficou ruim no ponto, dá um **passo de fase 1** que minimiza a violação, em vez de desistir.
-5. No fim, uma **restauração** reaperta as restrições violadas até a ração atender ao modelo **não linear** verdadeiro, que é o que o RuFaS confere.
+O simplex resolve esse mesmo modelo (só o padrão NASEM) assim:
+1. Toda oferta NASEM do RuFaS é uma soma de **quantidade × valor por kg**. O valor por kg depende de poucos números da ração inteira: consumo, amido total, % de concentrado e desconto do NDT. Esses números são **fixados** com a ração atual.
+2. Com eles fixos, cada restrição vira uma linha linear. Os valores por kg vêm das próprias funções de oferta do RuFaS, avaliadas para 1 kg de cada alimento. O `min()` da proteína microbiana vira duas linhas (`min(a, b) ≥ R` ⇔ `a ≥ R` e `b ≥ R`), e as proporções da MS são multiplicadas pelo DMI.
+3. O PL é resolvido pelo **método simplex** (`pulp.HiGHS(solver="simplex")`).
+4. Os números são recalculados com a ração nova, e o simplex roda de novo até a ração parar de mudar (3 a 11 rodadas; no máximo 20).
+5. Se o PL não tem solução, usa a **fase 1 do simplex** (folgas nas linhas, minimizando a falta total) e tenta de novo a partir dessa ração.
+6. Repete com o consumo livre e com o consumo fixado em 5 níveis entre o mínimo e o máximo do RuFaS, e fica com a ração mais barata que passa na checagem das funções originais do RuFaS (todas `≥ 0`).
 
-**Várias partidas.** Energia e proteína metabolizável tornam o problema não convexo, e uma única partida pode parar num ótimo local pior. Com preços brasileiros, isso deixou o SLP 10% mais caro numa formulação (seção 5). Por isso o SLP roda a partir do ponto inicial do RuFaS e de mais 2 pontos sorteados com semente fixa (`EXTRA_STARTS`), e fica com a ração viável mais barata. A semente é fixa, então a mesma entrada sempre dá a mesma ração.
+Não há derivadas. **Limite:** com os números fixos, o PL não vê que trocar um alimento muda o valor por kg dos outros. Trocar silagem por grão, por exemplo, aumenta o amido e o concentrado, o que reduz a digestibilidade da fibra de toda a ração. Por isso o simplex pode parar numa ração viável um pouco mais cara que a do SLSQP quando a escolha é entre grão e silagem (seção 5). O README tem o passo a passo e a tabela das linhas.
 
-**Re-tentativas e fallback.** Quando a formulação de um lote de vacas em lactação falha, o RuFaS (`Pen._run_formulation_attempts`) tenta de novo, cortando a produção de leite exigida ou aumentando o consumo de matéria seca. Se ainda assim falha, usa a ração anterior ou a definida pelo usuário. O `run.py` registra cada evento de reformulação em `events_<pid>.jsonl`, com o número de tentativas, os cortes de leite e o fallback, e o `summarize` mostra a tabela. Na fazenda de exemplo não houve nenhuma falha, nem com o SLSQP nem com o SLP: 1 tentativa por evento.
+**Re-tentativas e fallback.** Quando a formulação de um lote de vacas em lactação falha, o RuFaS (`Pen._run_formulation_attempts`) tenta de novo, cortando a produção de leite exigida ou aumentando o consumo de matéria seca. Se ainda assim falha, usa a ração anterior ou a definida pelo usuário. O `run.py` registra cada evento de reformulação em `events_<pid>.jsonl`, com o número de tentativas, os cortes de leite e o fallback, e o `summarize` mostra a tabela. Na fazenda de exemplo não houve nenhuma falha, nem com o SLSQP nem com o simplex: 1 tentativa por evento.
 
 ### 3.3 O modelo NRC clássico (PuLP)
 
@@ -125,7 +126,7 @@ Atende ao pedido: "modificar valores e verificar a nova decisão, quais alimento
 
 Se a ração não muda, o item não limita a decisão naquela faixa.
 
-Exemplo com os alimentos padrão e o SLP: **+15% de proteína metabolizável** faz o custo passar de 0,2918 para 0,5421 (+86%), com custo marginal de 0,00073 por g. Entram silagem de milho, feno, farinha de sangue e mineral, e a silagem de leguminosa sai. Ficam no limite cálcio, PM mínima e FDN máximo.
+Exemplo com os alimentos padrão e o simplex: **+15% de proteína metabolizável** faz o custo passar de 0,2918 para 0,2998 (+2,7%). A mistura de capim e leguminosa (104) sai, e a silagem de leguminosa (110) sobe para 30 kg MS. A proteína metabolizável fica no limite. O SLSQP chega a 0,3017 no mesmo caso.
 
 **2. Preços-sombra, faixas de validade e custos reduzidos (modelo NRC em PuLP).** O dual de cada restrição diz **quanto o custo sobe se a exigência subir 1 unidade**. Restrições com folga têm preço-sombra zero. Nas restrições em % da MS, o dual é convertido para "custo por 1 ponto percentual" (dual × MS total). Os testes conferem que o preço-sombra é igual à diferença finita do custo:
 - +0,5 Mcal de energia: previsto 0,119633, observado 0,119633;
@@ -138,61 +139,37 @@ A análise de faixas (*ranging*) do HiGHS completa a sensibilidade clássica de 
 
 A página escreve uma leitura em texto para cada alimento. Os testes conferem as faixas resolvendo o problema de novo, logo dentro e logo fora delas.
 
-Com o SLSQP, parte da diferença entre duas formulações pode ser ruído do ponto inicial aleatório. Para a análise, prefira o SLP ou o PuLP, que são determinísticos.
+Com o SLSQP, parte da diferença entre duas formulações pode ser ruído do ponto inicial aleatório. Para a análise, prefira o simplex ou o modelo NRC, que são determinísticos.
 
 ## 5. Análise econômica
 
 - **Custo da dieta:** `Σ cᵢxᵢ` por vaca por dia.
 - **IOFC** (renda sobre o custo de alimentação): `leite (kg) × preço do leite − custo da dieta`, por vaca por dia. Na vaca seca e na novilha a receita é zero. É a métrica usada no TCC anterior do mesmo orientador (seção 9).
-- **Comparação SLSQP × SLP:** modo `compare` na simulação e `summarize` para a tabela.
-- **Economia anual:** economia por vaca por dia × número de vacas × 365.
+- **Comparação SLSQP × simplex:** modo `compare` na simulação e `summarize` para a tabela.
+- **Diferença anual:** diferença por vaca por dia × número de vacas × 365.
 
-**Resultados até agora** (preços de exemplo do RuFaS, de 0,01 a 1,0 por kg):
+**Contra o melhor SLSQP.** O SLSQP do RuFaS parte de um ponto sorteado (`random.random() * 10` por alimento). Por isso, comparar com uma única execução dele pode favorecer o simplex por sorte. Em `tests/benchmark_seeds.py`, o SLSQP roda com as sementes 0 a 99 em cada caso de teste (preços de exemplo do RuFaS), e o simplex roda uma vez:
 
-| Problema de teste (vaca de 35 kg de leite) | Custo SLSQP | Custo SLP |
-|---|---|---|
-| NASEM, exigência ×1,0 | 0,2920 | 0,2918 |
-| NASEM, exigência ×1,2 | 0,3153 | 0,3119 |
-| NRC, exigência ×1,2 | 0,3626 | 0,3546 |
+| Caso | Simplex | Melhor SLSQP | Média SLSQP | Pior SLSQP | Simplex × melhor | Simplex × média | ms simplex | ms SLSQP |
+|---|---|---|---|---|---|---|---|---|
+| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 33 | 112 |
+| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 38 | 97 |
+| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | **−0,65%** | −0,92% | 58 | 109 |
 
-| Fazenda de exemplo, 39 formulações pareadas | SLP mais barato | SLP mais caro | Economia média | Velocidade |
-|---|---|---|---|---|
-| Vacas em lactação | 4 de 13 | 0 | 0,08% | 2,4× |
-| Pré-parto (CLOSE_UP) | 3 de 13 | 0 | 0,13% | 2,8× |
-| Novilhas (GROWING) | 0 de 13 | 0 | 0,00% | 1,9× |
+- O simplex **empata com o melhor de 100 SLSQPs** em 2 casos e é **0,65% mais barato do que todas as 100 execuções** no NASEM ×1,2.
+- Ele leva de 33 a 58 ms, contra 97 a 112 ms de **uma** execução do SLSQP.
 
-A tabela acima foi medida antes das várias partidas. Com a versão atual, a fazenda de exemplo dá:
-- **lactação:** SLP mais barato em 4 de 13 formulações, economia média de 0,08%;
-- **pré-parto:** SLP mais barato em 3 de 13, economia média de 0,43%;
-- **novilhas:** empate.
-
-O SLP nunca custou mais e achou ração viável em 100% dos casos. A velocidade ficou parecida com a do SLSQP, entre 0,5 e 1,2 vez a dele.
+**Fazenda de exemplo do RuFaS** (preços genéricos, 39 formulações pareadas): o simplex foi mais barato em 6 formulações e nunca mais caro.
 
 **Fazendas com preços brasileiros.** O professor não vai enviar fazendas. Por isso a comparação econômica usa 8 fazendas montadas com os exemplos do RuFaS ([`scenarios/fazendas/`](../scenarios/fazendas/README.md)): rebanhos free-stall (100 vacas) e open lot (1.000 vacas), cada um com as 4 listas regionais de alimentos, e os preços de `planilha-2026.json`. Resultados:
-- **312 formulações pareadas**, com 100% de sucesso nos dois otimizadores;
+- **312 formulações pareadas**: o simplex formulou com sucesso em 100%; o SLSQP falhou em 2;
 - nenhuma re-tentativa, corte de leite ou fallback;
-- **o SLP nunca ficou mais caro**;
-- nas listas Midwest, o SLP ficou 0,05% mais barato na lactação, o que dá **R$ 577/ano** no rebanho de 100 vacas e **R$ 5.326/ano** no de 1.000; nas outras listas houve empate;
-- o custo da dieta de lactação ficou entre **R$ 19,73 e R$ 32,56 por vaca/dia**.
+- nas **6 fazendas não Midwest**, os dois chegaram à mesma ração;
+- nas **2 fazendas Midwest**, o simplex ficou mais caro na lactação: **0,60%** na freestall (11 de 39 pares acima de 0,1%, o pior com 1,08%) e **0,31%** na open lot (9 de 39). Isso dá cerca de **R$ 7 mil/ano** no rebanho de 100 vacas e **R$ 31 mil/ano** no de 1.000;
+- o custo da dieta de lactação ficou entre **R$ 19,73 e R$ 32,55 por vaca/dia**;
+- tempo por formulação: 23 a 52 ms no simplex, 10 a 73 ms no SLSQP.
 
-Antes das várias partidas, o SLP ficou 1,1% mais caro na lactação da freestall-midwest, com uma formulação 10% acima do SLSQP. A correção foi medida nesse mesmo caso.
-
-**Contra o melhor SLSQP.** O SLSQP do RuFaS parte de um ponto sorteado (`random.random() * 10` por alimento). Por isso, comparar com uma única execução dele pode favorecer o SLP por sorte. Em `tests/benchmark_seeds.py`, o SLSQP roda com as sementes 0 a 99 em cada caso de teste, e o SLP roda uma vez:
-
-| Caso | SLP | Melhor SLSQP | Média SLSQP | Pior SLSQP | SLP × melhor | SLP × média | ms SLP | ms SLSQP |
-|---|---|---|---|---|---|---|---|---|
-| NASEM ×0,8 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 53 | 91 |
-| NASEM ×1,0 | 0,2918 | 0,2918 | 0,2920 | 0,2921 | −0,01% | −0,06% | 48 | 96 |
-| NASEM ×1,2 | 0,3119 | 0,3139 | 0,3148 | 0,3157 | **−0,65%** | −0,92% | 113 | 97 |
-| NRC ×0,8 | 0,2696 | 0,2696 | 0,2696 | 0,2696 | 0,00% | 0,00% | 27 | 70 |
-| NRC ×1,0 | 0,2911 | 0,2911 | 0,2949 | 0,2978 | 0,00% | −1,28% | 113 | 59 |
-| NRC ×1,2 | 0,3546 | 0,3546 | 0,3581 | 0,3652 | 0,00% | −0,97% | 46 | 83 |
-
-O SLSQP não falhou em nenhuma das 600 execuções. Os dados mostram quatro coisas:
-- O SLP **empata com o melhor de 100 SLSQPs** em 5 dos 6 casos.
-- No NASEM ×1,2, o SLP é **0,65% mais barato do que todas as 100 execuções**. Nesse caso, o SLSQP para num ótimo local qualquer que seja o ponto de partida.
-- Contra uma execução típica do SLSQP (a média), o SLP é de 0 a 1,3% mais barato. Entre o melhor e o pior ponto de partida, o próprio SLSQP varia até 3% (NRC ×1,2: de 0,3546 a 0,3652).
-- Com as 3 partidas, o SLP leva de 27 a 113 ms, contra 59 a 97 ms de **uma** execução do SLSQP. Para chegar ao custo do SLP, o SLSQP precisaria de várias execuções, e o tempo dele se multiplica. Com uma partida só, o SLP levava de 7 a 81 ms.
+A diferença nas fazendas Midwest vem do limite do método (seção 3.2): a escolha ali é entre milho grão e silagem, e com os números da ração fixos o grão parece mais barato do que é. Para comparação, o SLP da branch `integracao-rufas`, que usa derivadas, ficava 0,05% mais **barato** que o SLSQP nessas mesmas fazendas.
 
 Para reproduzir: `.venv\Scripts\python tests\benchmark_seeds.py 100`.
 
@@ -211,7 +188,7 @@ Flask local, aberta com `.venv\Scripts\python -m addon_rufas.web` em `http://127
 - exportar e importar o cenário em JSON, inclusive arquivos `dietopt-scenario` de outra ferramenta de dieta e o `feed.json` de uma fazenda do RuFaS, do qual vêm os alimentos e os preços (veja o README);
 - a página "Sobre", que mostra o próprio README convertido de Markdown.
 
-Pedidos simultâneos são atendidos um de cada vez, por uma trava global. O SLP troca uma função global do RuFaS e muda a pasta de trabalho durante a formulação.
+Pedidos simultâneos são atendidos um de cada vez, por uma trava global. O simplex troca uma função global do RuFaS e muda a pasta de trabalho durante a formulação.
 
 ## 7. Preços reais: CEPEA
 
@@ -242,20 +219,20 @@ O CEPEA (Esalq/USP) publica indicadores de preço sob a licença CC BY-NC 4.0. O
 
 O teto é necessário porque o modelo do RuFaS não limita minerais: sem ele, o calcário a R$ 0,10/kg entra como enchimento, com 4 a 7 kg/dia.
 
-Resultado: SLP R$ 19,73, SLSQP R$ 19,72 e NRC/PuLP R$ 25,64 por vaca/dia. O `planilha-2026.csv` registra o status de cada preço (verificado, parcial, proxy, não verificado) e o tratamento dado.
+Resultado: simplex R$ 19,74, SLSQP R$ 19,72 e NRC/PuLP R$ 25,64 por vaca/dia. O `planilha-2026.csv` registra o status de cada preço (verificado, parcial, proxy, não verificado) e o tratamento dado.
 
 **Sensibilidade a ±10% e ±20%** nos preços de silagem, caroço, farelo, milho e casca de soja: [`sensibilidade.md`](../scenarios/precos/sensibilidade.md), gerado por `sensibilidade.py`, que re-resolve cada caso.
-- A **silagem de milho** é o que mais pesa. Com ±20% no preço dela, o custo varia ±10,4% no SLP e ±5,3% no NRC. Depois vêm o farelo (até ±7,8% no NRC) e o caroço (±5,6%).
+- A **silagem de milho** é o que mais pesa. Com ±20% no preço dela, o custo varia ±10,6% no simplex e ±5,3% no NRC. Depois vêm o farelo (até ±7,8% no NRC) e o caroço (±5,6%).
 - O milho grão e a casca de soja não entram na ração, ou entram pouco, e mudam o custo em menos de 1%.
 - No **NRC, a ração não muda** em nenhum dos casos. Só o custo varia, o que confirma as faixas de preço da análise de PL.
-- No SLP, a ração muda pouco, quase sempre menos de 0,3 kg, com uma exceção: com o farelo 20% mais barato, ele troca 3,8 kg de silagem por 1,4 kg de farelo.
+- No simplex, a ração muda pouco na maioria dos casos. As exceções: com o farelo 20% mais barato, ele troca 4,6 kg de silagem por 1,6 kg de farelo; com o caroço 20% mais barato, +2,4 kg de caroço e −0,9 kg de farelo; com a silagem 20% mais cara, −1,4 kg de silagem e +0,4 kg de farelo.
 
 Para a comparação econômica final, os mesmos preços entram no `feed.json` do cenário da simulação (`purchased_feed_cost`), e roda-se o modo `compare`.
 
 ## 8. Testes
 
-`.venv\Scripts\python -m pytest` roda 36 testes, todos com alimentos reais da biblioteca do RuFaS:
-- **SLP** (`test_linear_ration_optimizer.py`): ração viável, custo ≤ SLSQP, determinismo e inviabilidade reportada.
+`.venv\Scripts\python -m pytest` roda 35 testes, todos com alimentos reais da biblioteca do RuFaS:
+- **Simplex** (`test_simplex_ration_optimizer.py`): ração viável, custo ≤ SLSQP, determinismo, inviabilidade reportada e recusa do padrão NRC.
 - **NRC/PuLP** (`test_nrc_lp.py`): todas as restrições atendidas, preço-sombra igual à diferença finita, faixas de validade e custo reduzido conferidos por re-solução, e diagnóstico de inviabilidade.
 - **Instrumentação** (`test_instrument.py`): contagem de tentativas, cortes de leite e fallback num lote simulado que falha.
 - **Interface** (`test_web.py`):
@@ -283,7 +260,7 @@ O TCC *Formulação Nutricional Otimizada como Ferramenta para Aumento de Margem
 - **Exemplo Northeast:** `example_Northeast_feed.json` repete o alimento 176, e o próprio RuFaS recusa o arquivo. O gerador das fazendas remove a duplicata.
 - **Sem teto de minerais:** o modelo do RuFaS não limita minerais. Com calcário barato, o otimizador o usa como enchimento. Os cenários de preço trazem um teto prático.
 
-**Limites do SLP:** nas restrições não lineares, ele acha um ótimo **local**, como o SLSQP. As 3 partidas reduzem esse risco, mas não garantem o ótimo global.
+**Limites do simplex:** os números da ração inteira (consumo, amido, % de concentrado, desconto do NDT) ficam fixos em cada rodada, então o PL não vê que trocar um alimento muda o valor por kg dos outros. Os 5 níveis de consumo reduzem o efeito, mas na troca entre grão e silagem o simplex ainda fica até ~1% mais caro que o SLSQP (fazendas Midwest).
 
 **Modelo PuLP:** ainda roda fora da simulação, e o NDT entra sem o desconto por consumo.
 

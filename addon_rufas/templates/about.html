@@ -54,7 +54,7 @@
   -&gt; NASEMRequirementsCalculator.calculate_requirements
   -&gt; funções de cada nutriente
   -&gt; NutritionRequirements
-  -&gt; RationOptimizer ou LinearRationOptimizer
+  -&gt; RationOptimizer ou SimplexRationOptimizer
   -&gt; ração otimizada</code></pre>
       <p>Depois do cálculo, as exigências continuam editáveis. Portanto, é
         possível usar os valores NASEM calculados ou testar valores definidos
@@ -88,11 +88,14 @@
 
     <details open>
       <summary>Otimizadores</summary>
-      <h3>Programação linear sequencial (SLP)</h3>
-      <p>Usa <code>LinearRationOptimizer</code>, criado no add-on, e
-        <code>scipy.optimize.linprog</code> com HiGHS. As restrições não
-        lineares são linearizadas localmente e o problema linear é resolvido
-        em passos sucessivos.</p>
+      <h3>PuLP + simplex (NASEM)</h3>
+      <p>Usa <code>SimplexRationOptimizer</code>, criado no add-on, com PuLP e
+        o método simplex do HiGHS. As restrições são as mesmas restrições NASEM
+        do RuFaS. Os números que dependem da ração inteira (consumo, amido,
+        % de concentrado e desconto do NDT) são fixados com a ração atual; assim
+        cada restrição fica linear e o simplex resolve. Esses números são
+        recalculados com a ração nova e o simplex roda de novo, até a ração
+        parar de mudar.</p>
       <h3>RuFaS original (SLSQP)</h3>
       <p>Usa <code>RationOptimizer</code> e
         <code>scipy.optimize.minimize(method="SLSQP")</code>. Nesse modo, a
@@ -114,13 +117,12 @@
 
     <details>
       <summary>Observações sobre os resultados</summary>
-      <p>O SLP usa um ponto inicial determinístico. O otimizador original do
+      <p>O simplex é determinístico. O otimizador original do
         RuFaS usa um ponto inicial aleatório quando não existe uma ração
         anterior. Isso pode mudar a trajetória e o ponto final do SLSQP; a
-        diferença não deve ser chamada automaticamente de erro, pois SLP e
+        diferença não deve ser chamada automaticamente de erro, pois simplex e
         SLSQP têm métodos de solução diferentes e o modelo NRC ainda usa outra
-        formulação. Consulte no README a distinção entre variação algorítmica,
-        aproximação do SLP e diferença real de modelo.</p>
+        formulação.</p>
       <p>Na tabela de resultados, margem maior ou igual a zero indica que a
         restrição foi atendida.</p>
     </details>

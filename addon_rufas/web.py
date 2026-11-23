@@ -1,6 +1,6 @@
 """Local browser interface for exercising the add-on optimizer.
 
-The page calls ``LinearRationOptimizer.attempt_optimization`` directly. It
+The page calls ``SimplexRationOptimizer.attempt_optimization`` directly. It
 does not modify the RuFaS checkout or replace the normal RuFaS runner.
 """
 
@@ -32,7 +32,7 @@ if str(RUFAS_DIR) not in sys.path:
     sys.path.insert(0, str(RUFAS_DIR))
 
 from addon_rufas import nrc_lp
-from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
+from addon_rufas.simplex_ration_optimizer import SimplexRationOptimizer
 from RUFAS.biophysical.animal.data_types.animal_combination import AnimalCombination
 from RUFAS.biophysical.animal.data_types.animal_types import AnimalType
 from RUFAS.biophysical.animal.data_types.nutrients import NutrientsInputs
@@ -356,7 +356,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
     requirements = _requirements(form)
     optimizer_name = form.get("optimizer", "linear")
     optimizer_types = {
-        "linear": ("Programação linear sequencial (SLP)", LinearRationOptimizer),
+        "linear": ("PuLP + simplex (restrições NASEM do RuFaS)", SimplexRationOptimizer),
         "rufas": ("Otimizador original do RuFaS (SLSQP)", RationOptimizer),
         "pulp": ("Modelo NRC clássico (PuLP + HiGHS)", None),
     }

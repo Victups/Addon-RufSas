@@ -1,5 +1,7 @@
 # Add-on RuFaS — Otimização do Formulador de Dieta
 
+> **Branch `pulp-simplex-nasem`:** o artefato principal passou a ser o `SimplexRationOptimizer` (PuLP + método simplex, só restrições NASEM do RuFaS), no lugar do SLP. A comparação é SLSQP × simplex. Resultados em `docs/RELATORIO.md` e `scenarios/fazendas/README.md`. As menções ao SLP abaixo descrevem a branch `integracao-rufas`.
+
 > Documento de escopo do projeto da disciplina. Serve como contexto para a equipe e para IAs de apoio.
 
 ---

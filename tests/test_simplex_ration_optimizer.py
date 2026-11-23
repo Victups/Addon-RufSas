@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
+from addon_rufas.simplex_ration_optimizer import SimplexRationOptimizer
 from RUFAS.biophysical.animal.data_types.animal_combination import AnimalCombination
 from RUFAS.biophysical.animal.data_types.nutrition_data_structures import NutritionRequirements
 from RUFAS.biophysical.animal.ration.amino_acid import EssentialAminoAcidRequirements
@@ -92,7 +92,7 @@ def _failed_constraints(optimizer: RationOptimizer, solution, config) -> list:
 
 
 def test_lp_ration_satisfies_every_constraint(feeds: list[Feed]) -> None:
-    optimizer = LinearRationOptimizer()
+    optimizer = SimplexRationOptimizer()
     solution, config = _formulate(optimizer, feeds, _requirements())
 
     assert solution.success, solution.message
@@ -101,32 +101,36 @@ def test_lp_ration_satisfies_every_constraint(feeds: list[Feed]) -> None:
 
 
 def test_lp_is_deterministic(feeds: list[Feed]) -> None:
-    first, _ = _formulate(LinearRationOptimizer(), feeds, _requirements())
-    second, _ = _formulate(LinearRationOptimizer(), feeds, _requirements())
+    first, _ = _formulate(SimplexRationOptimizer(), feeds, _requirements())
+    second, _ = _formulate(SimplexRationOptimizer(), feeds, _requirements())
 
     assert np.array_equal(first.x, second.x)
 
 
-@pytest.mark.parametrize("standard", [NutrientStandard.NASEM, NutrientStandard.NRC])
 @pytest.mark.parametrize("scale", [0.8, 1.0, 1.2])
-def test_lp_costs_no_more_than_slsqp(standard: NutrientStandard, scale: float) -> None:
-    feeds = load_feeds(standard)
+def test_lp_costs_no_more_than_slsqp(scale: float) -> None:
+    feeds = load_feeds(NutrientStandard.NASEM)
     started = time.perf_counter()
     slsqp, _ = _formulate(RationOptimizer(), feeds, _requirements(scale))
     slsqp_seconds = time.perf_counter() - started
     started = time.perf_counter()
-    lp, _ = _formulate(LinearRationOptimizer(), feeds, _requirements(scale))
+    lp, _ = _formulate(SimplexRationOptimizer(), feeds, _requirements(scale))
     lp_seconds = time.perf_counter() - started
-    print(f"\n{standard.name} x{scale}: SLSQP success={slsqp.success} cost={slsqp.fun:.4f} {slsqp_seconds:.2f}s | "
+    print(f"\nNASEM x{scale}: SLSQP success={slsqp.success} cost={slsqp.fun:.4f} {slsqp_seconds:.2f}s | "
           f"LP success={lp.success} cost={lp.fun:.4f} nit={lp.nit} {lp_seconds:.2f}s")
 
     assert lp.success, lp.message
     if slsqp.success:
         assert lp.fun <= slsqp.fun * (1 + 1e-3)
-    assert lp.nit < LinearRationOptimizer.MAX_ITERATIONS
+    assert lp.nit < SimplexRationOptimizer.MAX_ROUNDS
 
 
 def test_lp_reports_failure_when_requirements_are_impossible(feeds: list[Feed]) -> None:
-    solution, _ = _formulate(LinearRationOptimizer(), feeds, _requirements(scale=50.0))
+    solution, _ = _formulate(SimplexRationOptimizer(), feeds, _requirements(scale=50.0))
 
     assert not solution.success
+
+
+def test_only_nasem_is_accepted() -> None:
+    with pytest.raises(ValueError, match="NASEM"):
+        _formulate(SimplexRationOptimizer(), load_feeds(NutrientStandard.NRC), _requirements())

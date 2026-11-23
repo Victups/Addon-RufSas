@@ -17,7 +17,7 @@ Ressalvas:
 - Não há preço real para minerais e premix. Por isso eles não estão marcados, e o modelo NRC (PuLP), que exige minerais e vitaminas, fica inviável com esta lista sozinha. Inclua os minerais com o preço da nota fiscal.
 - Dados do CEPEA sob licença CC BY-NC 4.0. Cite a fonte no relatório.
 
-Resultado (vaca padrão da página, 35 kg de leite, lactação, confinamento, **depois de "Calcular exigências"**): o SLP e o SLSQP deram a mesma ração, a R$ 30,26 por vaca/dia, com IOFC de R$ 64,31 por vaca/dia. Com as exigências padrão da página, sem recalcular, esta lista fica inviável: falta cálcio, e não há mineral marcado.
+Resultado (vaca padrão da página, 35 kg de leite, lactação, confinamento, **depois de "Calcular exigências"**): o simplex e o SLSQP deram a mesma ração, a R$ 30,26 por vaca/dia, com IOFC de R$ 64,31 por vaca/dia. Com as exigências padrão da página, sem recalcular, esta lista fica inviável: falta cálcio, e não há mineral marcado.
 
 # Planilha dos colegas (2026)
 
@@ -56,7 +56,7 @@ Dos itens com preço, 110 são do mercado brasileiro e 18 foram convertidos de p
    | Sal (239) | 0,15 | ~0,6% |
    | Premix (300) | 0,2 | ~0,8% |
 
-   O modelo do RuFaS não limita minerais, e com o calcário a R$ 0,10/kg os otimizadores o usavam como enchimento: o SLP pôs 6,9 kg/dia e o SLSQP 4,1 kg/dia. Os tetos são uma premissa prática, ajuste-os na página se precisar.
+   O modelo do RuFaS não limita minerais, e com o calcário a R$ 0,10/kg os otimizadores o usavam como enchimento, com 4 a 7 kg/dia. Os tetos são uma premissa prática, ajuste-os na página se precisar.
 6. **Marca 8 alimentos** ao importar: os 5 de Goiás, mais calcário, sal e premix, que o modelo NRC exige.
 
 **Ressalvas da planilha**, a tratar antes do relatório final:
@@ -70,8 +70,8 @@ Dos itens com preço, 110 são do mercado brasileiro e 18 foram convertidos de p
 
 | Modelo | Custo (R$/vaca/dia) | IOFC (R$/vaca/dia) |
 |---|---|---|
-| SLP (add-on) | 19,73 | 74,84 |
+| Simplex (add-on, PuLP) | 19,74 | 74,83 |
 | SLSQP (RuFaS) | 19,72 | 74,85 |
 | NRC (PuLP) | 25,64 | 68,93 |
 
-O SLP ficou 0,05% acima do SLSQP. O NRC sai mais caro porque exige também minerais e vitaminas pelas tabelas do NRC 2001. Com os 8 alimentos marcados, o custo cai de R$ 30,26 para R$ 19,73 em relação à lista de Goiás. O principal motivo é que o calcário supre o cálcio que antes vinha de alimentos caros.
+O simplex ficou 0,1% acima do SLSQP. O NRC sai mais caro porque exige também minerais e vitaminas pelas tabelas do NRC 2001. Com os 8 alimentos marcados, o custo cai de R$ 30,26 para R$ 19,74 em relação à lista de Goiás. O principal motivo é que o calcário supre o cálcio que antes vinha de alimentos caros.

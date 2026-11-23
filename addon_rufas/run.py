@@ -1,5 +1,5 @@
 """
-Runs RuFaS unchanged, optionally with the add-on's `LinearRationOptimizer`.
+Runs RuFaS unchanged, optionally with the add-on's `SimplexRationOptimizer` (PuLP + simplex).
 
     python -m addon_rufas.run --optimizer slsqp|lp|compare [RuFaS options, e.g. -p path/to/task_manager_metadata.json]
 
@@ -29,7 +29,7 @@ def install(optimizer: str, output_dir: Path) -> None:
     from RUFAS.biophysical.animal import pen
     from RUFAS.biophysical.animal.ration.ration_optimizer import RationOptimizer
     from addon_rufas.instrument import record_formulations, record_ration_events
-    from addon_rufas.linear_ration_optimizer import LinearRationOptimizer
+    from addon_rufas.simplex_ration_optimizer import SimplexRationOptimizer
 
     log_path = output_dir / f"formulations_{os.getpid()}.jsonl"
     # Pen-level events (retries, milk cuts, fallbacks) are logged under the optimizer that drives the simulation.
@@ -37,9 +37,9 @@ def install(optimizer: str, output_dir: Path) -> None:
     if optimizer == "slsqp":
         record_formulations(RationOptimizer, log_path, "slsqp")
         return
-    pen.RationOptimizer = LinearRationOptimizer  # Pen() builds its optimizer from this module-level name
+    pen.RationOptimizer = SimplexRationOptimizer  # Pen() builds its optimizer from this module-level name
     shadow = RationOptimizer if optimizer == "compare" else None  # compare: also solve each problem with SLSQP
-    record_formulations(LinearRationOptimizer, log_path, "lp", shadow, "slsqp")
+    record_formulations(SimplexRationOptimizer, log_path, "lp", shadow, "slsqp")
 
 
 PATH_OPTIONS = {"-p", "--path-to-metadata", "-o", "--output-dir", "-l", "--logs-dir"}
