@@ -55,7 +55,7 @@ def test_other_categories_compute_requirements_and_formulate(category):
 
 
 def test_heifer_is_feasible_for_both_optimizers():
-    # The SLP used to stop at iteration 1 here: its first linearization is infeasible (phase-1 step fixes it).
+    # The first linear program is infeasible here; the simplex phase 1 finds a ration to restart from.
     data = web._default_form()
     data.update(category="novilha", action="calculate_requirements", cow_body_weight="400", average_daily_gain="0.8")
     html = client.post("/", data=data).get_data(as_text=True)
