@@ -208,7 +208,7 @@ Flask local, aberta com `.venv\Scripts\python -m addon_rufas.web` em `http://127
 - IOFC;
 - análise de sensibilidade;
 - painel do modelo NRC;
-- exportar e importar o cenário em JSON, inclusive arquivos `dietopt-scenario` de outra ferramenta de dieta (veja o README);
+- exportar e importar o cenário em JSON, inclusive arquivos `dietopt-scenario` de outra ferramenta de dieta e o `feed.json` de uma fazenda do RuFaS, do qual vêm os alimentos e os preços (veja o README);
 - a página "Sobre", que mostra o próprio README convertido de Markdown.
 
 Pedidos simultâneos são atendidos um de cada vez, por uma trava global. O SLP troca uma função global do RuFaS e muda a pasta de trabalho durante a formulação.
@@ -254,14 +254,14 @@ Para a comparação econômica final, os mesmos preços entram no `feed.json` do
 
 ## 8. Testes
 
-`.venv\Scripts\python -m pytest` roda 35 testes, todos com alimentos reais da biblioteca do RuFaS:
+`.venv\Scripts\python -m pytest` roda 36 testes, todos com alimentos reais da biblioteca do RuFaS:
 - **SLP** (`test_linear_ration_optimizer.py`): ração viável, custo ≤ SLSQP, determinismo e inviabilidade reportada.
 - **NRC/PuLP** (`test_nrc_lp.py`): todas as restrições atendidas, preço-sombra igual à diferença finita, faixas de validade e custo reduzido conferidos por re-solução, e diagnóstico de inviabilidade.
 - **Instrumentação** (`test_instrument.py`): contagem de tentativas, cortes de leite e fallback num lote simulado que falha.
 - **Interface** (`test_web.py`):
   - páginas, nomes das restrições, erros de entrada e as três categorias;
   - alojamento, fósforo do processo, IOFC;
-  - exportar e importar JSON, inclusive o formato `dietopt-scenario` e o cenário de preços da planilha (viável);
+  - exportar e importar JSON, inclusive o formato `dietopt-scenario`, o `feed.json` de uma fazenda do RuFaS e o cenário de preços da planilha (viável);
   - análise de sensibilidade e o modelo PuLP na página.
 
 ## 9. Trabalho relacionado

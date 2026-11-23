@@ -142,6 +142,18 @@ def test_spreadsheet_price_scenario_imports_and_solves():
     assert "<h2>Viável</h2>" in client.post("/", data=form).get_data(as_text=True)
 
 
+def test_imports_a_rufas_farm_feed_file():
+    content = (Path(__file__).parents[1] / "scenarios" / "fazendas" / "freestall-midwest" / "feed.json").read_bytes()
+    upload = {"action": "import", "scenario": (io.BytesIO(content), "feed.json")}
+    page = html.unescape(client.post("/", data=upload, content_type="multipart/form-data").get_data(as_text=True))
+    assert "Não foi possível importar" not in page and "lac_cow" in page
+    # the lactating pen's feeds, not the calves' milk (202) and starter (216)
+    assert sorted(re.findall(r'name="selected_feeds" value="(\d+)" checked', page), key=int) == ["23", "44", "50", "104", "110", "301", "302"]
+    assert field(page, "cost_44") == 1.2876 and field(page, "cost_216") == 1.4684
+    form = web._imported_form(type("Upload", (), {"filename": "feed.json", "stream": io.BytesIO(content)}))[0]
+    assert "<h2>Viável</h2>" in client.post("/", data=form).get_data(as_text=True)
+
+
 def test_imports_a_dietopt_scenario_file():
     content = (Path(__file__).parent / "data" / "cenario-dietopt.json").read_bytes()
     upload = {"action": "import", "scenario": (io.BytesIO(content), "cenario-avaliar-dietas.json")}

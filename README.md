@@ -190,6 +190,32 @@ Campos sem equivalente na página (`diets`, `tolerance`, `resolution`, `seeds`)
 são ignorados, e a página avisa quais foram. Um `standard` diferente de NASEM
 também é ignorado com aviso, porque a página calcula as exigências pelo NASEM.
 
+O importador lê também o **`feed.json` de uma fazenda do RuFaS**, por exemplo
+`scenarios/fazendas/freestall-midwest/feed.json`. É preciso distinguir o que
+esse arquivo descreve do que a página precisa:
+
+1. o cenário de simulação do RuFaS tem cinco arquivos (`config`, `animal`,
+   `feed`, `metadata` e `tasks`) e descreve **o rebanho durante um ano**;
+2. a página formula a dieta de **uma vaca**, num momento.
+
+Por isso só o `feed.json` é aproveitado. O `animal.json` não tem "a vaca": o
+peso, o leite e os dias em lactação de cada animal são gerados pela simulação,
+dia a dia. A conversão (`web._from_rufas_feed`) faz:
+
+| No `feed.json` | Na página |
+|---|---|
+| `feeds[].feed_type` e `purchased_feed_cost` | preço (`cost_<id>`) de cada alimento comprado |
+| `rations[]` do lote da categoria (`lac_cow` para lactação) | alimentos marcados |
+| `ration_percentage`, `intake_*`, `ration_formulation_parameters` | ignorados: a página formula a ração, não a recebe pronta |
+
+A categoria importada é a lactação. Os alimentos marcados são os da ração do
+lote `lac_cow`, os mesmos que o RuFaS oferece a esse lote na simulação. Assim,
+o leite (202) e o concentrado inicial (216), que no arquivo pertencem só ao
+lote de bezerras, não entram. Os dados da vaca continuam vindo do formulário ou
+de **Calcular exigências**, e a página avisa isso ao importar. Com esse arquivo,
+a página resolve a mesma lista de alimentos, com os mesmos preços, que a
+simulação daquela fazenda usou.
+
 ### Os dois fósforos
 
 - **Fósforo**: exigência da calculadora NASEM (manutenção, crescimento,

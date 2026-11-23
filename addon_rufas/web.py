@@ -658,10 +658,33 @@ def _from_dietopt(data: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
     return flat, ignored
 
 
+def _from_rufas_feed(data: Mapping[str, Any], category: str = "lactacao") -> tuple[dict[str, Any], str]:
+    """
+    Converts a RuFaS farm feed file (`feed.json` of a simulation) to this page's flat keys: the price of every
+    purchased feed, and as selected feeds the ones RuFaS offers to the category's pen (its `rations` entry).
+    The file has no cow data: in the simulation that comes from the herd, day by day.
+    """
+    flat: dict[str, Any] = {"category": category}
+    for item in data["feeds"]:
+        feed_id = int(item["feed_type"])
+        if feed_id not in LIBRARY_ROWS:
+            raise ValueError(f"alimento {feed_id} não existe na biblioteca NASEM")
+        flat[f"cost_{feed_id}"] = item["purchased_feed_cost"]
+    combination = CATEGORIES[category][1].name.lower()
+    pen_feeds = next((r["feeds"] for r in data.get("rations", []) if r.get("animal_combination") == combination), None)
+    flat["selected_feeds"] = sorted({int(f["feed_type"]) for f in (pen_feeds or data["feeds"])})
+    note = (
+        f"Alimentos e preços importados do feed.json do RuFaS; marcados os alimentos do lote {combination}. "
+        "O arquivo não tem dados da vaca: use os do formulário ou Calcular exigências."
+    )
+    return flat, note
+
+
 def _imported_form(upload: Any) -> tuple[MultiDict, str | None]:
     """
     Default page state overridden by an uploaded scenario JSON: this page's export (any subset of its keys), the same
-    inside a {"data": ...} envelope, or a "dietopt-scenario" file. Returns the form and a note on ignored fields.
+    inside a {"data": ...} envelope, a "dietopt-scenario" file, or a RuFaS farm `feed.json` (feeds and prices only).
+    Returns the form and a note (ignored fields, or what the file could not provide).
     """
     if upload is None or not upload.filename:
         raise ValueError("escolha um arquivo JSON")
@@ -673,7 +696,10 @@ def _imported_form(upload: Any) -> tuple[MultiDict, str | None]:
     if isinstance(data.get("data"), dict):
         data = data["data"]
     note = None
-    if isinstance(data.get("cow"), dict) or isinstance(data.get("feeds"), list):
+    feeds = data.get("feeds")
+    if isinstance(feeds, list) and feeds and isinstance(feeds[0], dict) and "feed_type" in feeds[0]:
+        data, note = _from_rufas_feed(data)
+    elif isinstance(data.get("cow"), dict) or isinstance(feeds, list):
         data, ignored = _from_dietopt(data)
         if ignored:
             note = "Cenário importado. Campos que esta página não usa e foram ignorados: " + ", ".join(ignored) + "."
