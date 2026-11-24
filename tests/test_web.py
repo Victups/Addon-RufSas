@@ -96,6 +96,14 @@ def test_scenario_export_then_import_round_trips():
     assert re.search(r'name="category" value="seca" checked', html)
 
 
+def test_importing_only_the_cow_keeps_the_prices_on_the_page():
+    page = web._default_form() | {"cost_44": "1.2876", "milk_price": "2.7"}
+    upload = {"action": "import", "scenario": (io.BytesIO(b'{"category": "seca", "cow_body_weight": 700}'), "vaca.json")}
+    html = client.post("/", data=page | upload, content_type="multipart/form-data").get_data(as_text=True)
+    assert field(html, "cow_body_weight") == 700 and re.search(r'name="category" value="seca" checked', html)
+    assert field(html, "cost_44") == 1.2876 and field(html, "milk_price") == 2.7
+
+
 @pytest.mark.parametrize("content", [b"not json", b"[1, 2]", b'{"typo_field": 1}'])
 def test_bad_scenario_files_are_rejected(content):
     upload = {"action": "import", "scenario": (io.BytesIO(content), "x.json")}
@@ -105,8 +113,8 @@ def test_bad_scenario_files_are_rejected(content):
 
 def test_iofc_is_milk_revenue_minus_diet_cost():
     html = post(milk_price="0.5", milk_production="30")
-    cost = float(re.search(r"Custo / vaca / dia</span><strong>([-\d.]+)", html).group(1))
-    iofc = float(re.search(r"IOFC / vaca / dia</span><strong>([-\d.]+)", html).group(1))
+    cost = float(re.search(r"Custo / vaca / dia \(\$\)</span><strong>([-\d.]+)", html).group(1))
+    iofc = float(re.search(r"IOFC / vaca / dia \(\$\)</span><strong>([-\d.]+)", html).group(1))
     assert iofc == pytest.approx(30 * 0.5 - cost, abs=1e-3)
 
 

@@ -133,7 +133,7 @@
       </div>
       <div class="table-wrap">
       <table>
-        <thead><tr><th>Usar</th><th>ID</th><th>Alimento</th><th>Categoria / tipo</th><th>Custo ($/kg)</th><th>Mín. (kg MS)</th><th>Máx. (kg MS)</th></tr></thead>
+        <thead><tr><th>Usar</th><th>ID</th><th>Alimento</th><th>Categoria / tipo</th><th>Custo ($/kg MS)</th><th>Mín. (kg MS)</th><th>Máx. (kg MS)</th></tr></thead>
         <tbody>{% for feed in feeds %}
           <tr class="feed-row" data-search="{{ feed.rufas_id }} {{ feed_names[feed.rufas_id] }} {{ feed.Fd_Category.value }} {{ feed.feed_type.value }}">
             <td><input type="checkbox" name="selected_feeds" value="{{ feed.rufas_id }}" {% if feed.rufas_id in selected_ids %}checked{% endif %}></td>
@@ -180,7 +180,7 @@
     <h3>Conclusões</h3>
     <ul>{% for line in analysis.conclusions %}<li>{{ line }}</li>{% endfor %}</ul>
     <h3>Ração antes e depois</h3>
-    <table><thead><tr><th>ID</th><th>Alimento</th><th>Antes (kg MS)</th><th>Depois (kg MS)</th><th>Diferença</th></tr></thead>
+    <table><thead><tr><th>ID</th><th>Alimento</th><th>Antes (kg MS)</th><th>Depois (kg MS)</th><th>Diferença (kg MS)</th></tr></thead>
       <tbody>{% for row in analysis.rows %}<tr><td>{{ row.id }}</td><td>{{ row.name }}</td><td>{{ '%.4f'|format(row.before) }}</td><td>{{ '%.4f'|format(row.after) }}</td><td>{{ '%+.4f'|format(row.delta) }}</td></tr>{% endfor %}</tbody>
     </table>
     <p class="muted">Abaixo, o resultado completo da nova formulação.</p>
@@ -192,15 +192,15 @@
     <summary>Resultado · {{ result.optimizer_label }} · {{ result.category_label }}</summary>
     <div class="result-top">
       <div><p class="eyebrow">{{ result.optimizer_label }}</p><h2>{{ 'Viável' if result.solution.success else 'Inviável' }}</h2></div>
-      <div class="metric"><span>Custo / vaca / dia</span><strong>{{ '%.4f'|format(result.solution.fun) }}</strong></div>
-      <div class="metric"><span>IOFC / vaca / dia</span><strong>{{ '%.4f'|format(result.iofc) }}</strong></div>
-      <div class="metric"><span>Iterações</span><strong>{{ result.solution.nit }}</strong></div>
+      <div class="metric"><span>Custo / vaca / dia ($)</span><strong>{{ '%.4f'|format(result.solution.fun) }}</strong></div>
+      <div class="metric"><span>IOFC / vaca / dia ($)</span><strong>{{ '%.4f'|format(result.iofc) }}</strong></div>
+      <div class="metric"><span>Iterações (rodadas)</span><strong>{{ result.solution.nit }}</strong></div>
     </div>
     <p class="{{ 'ok' if result.solution.success else 'bad' }}">{{ result.solution.message }}</p>
     {% if result.warnings %}<ul>{% for line in result.warnings %}<li class="bad">{{ line }}</li>{% endfor %}</ul>{% endif %}
     {% if result.solution.success %}
       <h3>Ração encontrada</h3>
-      <table><thead><tr><th>ID</th><th>Alimento</th><th>kg MS/dia</th><th>Custo</th></tr></thead>
+      <table><thead><tr><th>ID</th><th>Alimento</th><th>kg MS/dia</th><th>Custo ($/dia)</th></tr></thead>
       <tbody>{% for item in result.ration %}<tr><td>{{ item.id }}</td><td>{{ item.name }}</td><td>{{ '%.4f'|format(item.amount) }}</td><td>{{ '%.4f'|format(item.cost) }}</td></tr>{% endfor %}</tbody></table>
     {% endif %}
     {% if result.supply %}
@@ -212,13 +212,13 @@
       {% if result.supply %}O preço-sombra é quanto o custo sobe se a exigência subir 1 unidade (zero se a restrição tem folga).
         Ele só vale enquanto a exigência fica na faixa "vale entre"; fora dela, a base da solução muda e o preço-sombra também.{% endif %}</p>
     <table><thead><tr><th>Restrição</th><th>Margem</th><th>Status</th>{% if result.supply %}<th>Preço-sombra</th><th>Exigência</th><th>Vale entre</th>{% endif %}</tr></thead>
-      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td>{% if result.supply %}<td>{{ '%.6g'|format(row.shadow_price) }} / {{ row.unit }}</td><td>{{ '%.4g'|format(row.requirement) if row.requirement is defined else '—' }}</td><td>{% if row.valid_low is defined %}{{ '%.4g'|format(row.valid_low) if row.valid_low > -1e30 else '−∞' }} a {{ '%.4g'|format(row.valid_high) if row.valid_high < 1e30 else '+∞' }}{% else %}—{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody>
+      <tbody>{% for row in result.constraints %}<tr><td>{{ row.name }}</td><td>{{ '%.6f'|format(row.slack) }} {{ row.unit }}</td><td class="{{ 'ok' if row.slack >= -0.000001 else 'bad' }}">{{ 'OK' if row.slack >= -0.000001 else 'Violada' }}</td>{% if result.supply %}<td>{{ '%.6g'|format(row.shadow_price) }} / {{ row.unit }}</td><td>{{ '%.4g'|format(row.requirement) if row.requirement is defined else '—' }}</td><td>{% if row.valid_low is defined %}{{ '%.4g'|format(row.valid_low) if row.valid_low > -1e30 else '−∞' }} a {{ '%.4g'|format(row.valid_high) if row.valid_high < 1e30 else '+∞' }}{% else %}—{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody>
     </table>
     {% if result.feed_ranges %}
       <h3>Custo reduzido e faixa de preço dos alimentos</h3>
       <p class="muted">Faixa de preço em que a ração atual continua ótima. Para um alimento fora da dieta, o custo reduzido é quanto o preço
         precisa cair para ele entrar.</p>
-      <table><thead><tr><th>Alimento</th><th>Na dieta (kg MS)</th><th>Preço</th><th>Custo reduzido</th><th>Ração ótima com preço entre</th><th>Leitura</th></tr></thead>
+      <table><thead><tr><th>Alimento</th><th>Na dieta (kg MS)</th><th>Preço ($/kg MS)</th><th>Custo reduzido ($/kg MS)</th><th>Ração ótima com preço entre ($/kg MS)</th><th>Leitura</th></tr></thead>
         <tbody>{% for f in result.feed_ranges %}<tr><td>{{ f.name }}</td><td>{{ '%.3f'|format(f.amount) }}</td><td>{{ '%.4g'|format(f.price) }}</td><td>{{ '%.4g'|format(f.reduced_cost) }}</td>
           <td>{{ '%.4g'|format(f.price_low) if f.price_low > -1e30 else '−∞' }} a {{ '%.4g'|format(f.price_high) if f.price_high < 1e30 else '+∞' }}</td><td>{{ f.reading }}</td></tr>{% endfor %}</tbody>
       </table>

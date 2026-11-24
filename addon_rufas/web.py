@@ -117,6 +117,25 @@ CONSTRAINT_LABELS = {
     "DMI_constraint_lower": "Matéria seca (mínimo)",
 }
 
+# Unit of each RuFaS constraint's margin (what its function returns).
+CONSTRAINT_UNITS = {
+    "NE_total_constraint": "Mcal/dia",
+    "NE_maintenance_and_activity_constraint": "Mcal/dia",
+    "NE_lactation_constraint": "Mcal/dia",
+    "NE_growth_constraint": "Mcal/dia",
+    "NASEM_net_energy_constraint": "Mcal/dia",
+    "calcium_constraint": "g/dia",
+    "phosphorus_constraint": "g/dia",
+    "protein_constraint_lower": "g/dia",
+    "protein_constraint_upper": "g/dia",
+    "NDF_constraint_lower": "pontos de % MS",
+    "NDF_constraint_upper": "pontos de % MS",
+    "forage_NDF_constraint": "pontos de % MS",
+    "fat_constraint": "pontos de % MS",
+    "DMI_constraint_upper": "kg MS/dia",
+    "DMI_constraint_lower": "kg MS/dia",
+}
+
 # Fields of the "requirements" panel: (form key, label, unit).
 REQUIREMENT_FIELDS: list[tuple[str, str, str]] = [
     ("body_weight", "Peso corporal usado pelo otimizador", "kg"),
@@ -395,6 +414,7 @@ def simulate(form: Mapping[str, str]) -> dict[str, Any]:
             "name": CONSTRAINT_LABELS.get(constraint["fun"].__name__, constraint["fun"].__name__),
             "slack": float(constraint["fun"](solution.x, ration_config)),
             "scale": _constraint_scale(constraint, len(solution.x), ration_config),
+            "unit": CONSTRAINT_UNITS.get(constraint["fun"].__name__, ""),
         }
         for constraint in constraints
     ]
@@ -686,9 +706,10 @@ def _from_rufas_feed(data: Mapping[str, Any], category: str = "lactacao") -> tup
     return flat, note
 
 
-def _imported_form(upload: Any) -> tuple[MultiDict, str | None]:
+def _imported_form(upload: Any, current: Mapping[str, str] | None = None) -> tuple[MultiDict, str | None]:
     """
-    Default page state overridden by an uploaded scenario JSON: this page's export (any subset of its keys), the same
+    Page state (`current`, else the defaults) overridden by an uploaded scenario JSON, so a file with only the cow
+    keeps the prices already on the page: this page's export (any subset of its keys), the same
     inside a {"data": ...} envelope, a "dietopt-scenario" file, or a RuFaS farm `feed.json` (feeds and prices only).
     Returns the form and a note (ignored fields, or what the file could not provide).
     """
@@ -714,10 +735,15 @@ def _imported_form(upload: Any) -> tuple[MultiDict, str | None]:
     if unknown:
         raise ValueError(f"campos desconhecidos no JSON: {', '.join(unknown[:5])}")
     form = MultiDict({key: value for key, value in defaults.items() if key != "selected_feeds"})
+    current = current or {}
+    for key in list(form):
+        if current.get(key, "") != "":
+            form[key] = current[key]
     for key, value in data.items():
         if key != "selected_feeds":
             form[key] = str(value)
-    selected = data.get("selected_feeds", sorted(DEFAULT_SELECTED_IDS))
+    page_selection = sorted(_selected_ids(current)) if current.get("selected_feeds") else sorted(DEFAULT_SELECTED_IDS)
+    selected = data.get("selected_feeds", page_selection)
     if not isinstance(selected, list):
         raise ValueError("selected_feeds deve ser uma lista de IDs")
     form.setlist("selected_feeds", [str(int(feed_id)) for feed_id in selected])
@@ -746,7 +772,7 @@ def index():
     error = notice = None
     try:
         if action == "import":
-            form, notice = _imported_form(request.files.get("scenario"))
+            form, notice = _imported_form(request.files.get("scenario"), request.form)
         elif action == "calculate_requirements":
             calculated = _calculate_nasem_requirements(form)
             for key in DEFAULTS:
