@@ -6,7 +6,6 @@ body { margin: 0; } main { max-width: 1180px; margin: auto; padding: 28px 18px 6
 .tab { border: 1px solid #30483a; border-radius: 8px; color: #a7b9ad; padding: 10px 15px; text-decoration: none; }
 .tab:hover, .tab.active { background: #203d2c; color: #eaf5ec; }
 .eyebrow { color: #6ed394; font-size: .75rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
-.badge { align-self: start; background: #203d2c; border-radius: 9px; color: #8be0a5; padding: 10px 14px; text-align: center; }
 .panel { margin-top: 18px; } .muted { color: #a7b9ad; font-size: .9rem; } code { color: #8be0a5; }
 summary { color: #eaf5ec; cursor: pointer; font-size: 1.15rem; font-weight: 750; list-style-position: outside; margin-bottom: 16px; }
 summary::marker { color: #6ed394; font-size: 1.1em; }
