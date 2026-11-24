@@ -162,7 +162,7 @@
         <label>Item a variar
           <select name="sens_param">
             {% for key, (label, unit) in sensitivity_options.items() %}
-            <option value="{{ key }}" {% if form.get('sens_param', 'lactation_energy') == key %}selected{% endif %}>{{ label }}</option>
+            <option value="{{ key }}" {% if form.get('sens_param', 'metabolizable_protein') == key %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
           </select>
         </label>
