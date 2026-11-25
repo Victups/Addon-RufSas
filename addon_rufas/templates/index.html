@@ -152,45 +152,52 @@
 
     <details class="panel" open>
       <summary>Análise de sensibilidade</summary>
-      <p class="muted">Escolha um preço ou uma exigência. A página formula a ração com esse item de −30% a +30% e mostra
-        como o custo, o IOFC e os alimentos mudam, e em que ponto a ração troca de alimentos. A variação escolhida abaixo
-        é detalhada no antes e depois. Use o simplex ou o modelo NRC: o SLSQP começa de um ponto sorteado, e parte da
-        diferença pode ser só efeito do sorteio.</p>
-      <div class="fields">
-        <label>Item a variar
-          <select name="sens_param">
-            {% for key, (label, unit) in sensitivity_options.items() %}
-            <option value="{{ key }}" {% if form.get('sens_param', 'metabolizable_protein') == key %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-          </select>
+      <p class="muted">Descubra quais preços e exigências mais pesam no custo da dieta. A página varia cada item, um de
+        cada vez, com o otimizador escolhido, e desenha o resultado. Depois, clique num item para ver a curva dele e
+        em que ponto a ração troca de alimentos.</p>
+      <div class="sens-run">
+        <button type="submit" name="action" value="sensitivity" id="run-sensitivity">Rodar análise de sensibilidade</button>
+        <label class="sens-step">Passo do ranking
+          <input type="number" step="any" min="1" name="sens_percent" value="{{ form.get('sens_percent', '10') }}"> %
         </label>
-        <label>Variação <span>%</span>
-          <input type="number" step="any" name="sens_percent" value="{{ form.get('sens_percent', '10') }}">
-        </label>
+        <span class="muted" id="sens-wait" hidden>Calculando: a dieta é formulada dezenas de vezes, leva alguns segundos.</span>
       </div>
-      <button type="submit" name="action" value="sensitivity" class="secondary-button">Analisar sensibilidade</button>
+      <input type="hidden" name="sens_param" id="sens-param" value="{{ form.get('sens_param', '') }}">
     </details>
   </form>
 
   {% if analysis %}
-  <details class="panel result" open>
-    <summary>Sensibilidade · {{ analysis.label }}</summary>
-    <h3>Conclusões</h3>
-    <ul>{% for line in analysis.conclusions %}<li>{{ line }}</li>{% endfor %}</ul>
-    <h3>Varredura de {{ analysis.label|lower }}</h3>
-    <p class="muted">Cada linha é uma formulação completa. "Mudança" marca onde a ração troca de alimentos.</p>
-    <div class="table-scroll"><table><thead><tr><th>Variação</th><th>Valor ({{ analysis.unit }})</th><th>Custo ($/dia)</th><th>IOFC ($/dia)</th>
-      {% for name in analysis.sweep.feeds %}<th>{{ name }} (kg MS)</th>{% endfor %}<th>Mudança</th></tr></thead>
-      <tbody>{% for r in analysis.sweep.rows %}<tr{% if r.current %} class="current"{% endif %}><td>{{ '%+g'|format(r.percent) }}%</td><td>{{ '%.4g'|format(r.value) }}</td>
-        <td>{{ '%.4f'|format(r.cost) if r.feasible else '—' }}</td><td>{{ '%.4f'|format(r.iofc) if r.feasible else '—' }}</td>
-        {% for amount in r.amounts %}<td>{{ '%.3f'|format(amount) if r.feasible else '—' }}</td>{% endfor %}<td>{{ r.note }}</td></tr>{% endfor %}</tbody>
-    </table></div>
-    <h3>Ração antes e depois ({{ '%+g'|format(form.get('sens_percent', '10')|float) }}%)</h3>
-    <table><thead><tr><th>ID</th><th>Alimento</th><th>Antes (kg MS)</th><th>Depois (kg MS)</th><th>Diferença (kg MS)</th></tr></thead>
-      <tbody>{% for row in analysis.rows %}<tr><td>{{ row.id }}</td><td>{{ row.name }}</td><td>{{ '%.4f'|format(row.before) }}</td><td>{{ '%.4f'|format(row.after) }}</td><td>{{ '%+.4f'|format(row.delta) }}</td></tr>{% endfor %}</tbody>
-    </table>
-    <p class="muted">Abaixo, o resultado completo da nova formulação.</p>
-  </details>
+  <section class="panel result sens" id="sensitivity">
+    <h2>Análise de sensibilidade <span class="muted">· {{ analysis.optimizer_label }} · custo atual {{ '%.2f'|format(analysis.cost) }} $/vaca/dia</span></h2>
+    <ul class="sens-summary">{% for line in analysis.summary %}<li>{{ line }}</li>{% endfor %}</ul>
+    {% if analysis['items'] %}
+    <div class="sens-grid">
+      <div class="sens-card">
+        <h3>O que mais pesa no custo</h3>
+        <p class="muted">Quanto o custo muda com cada item {{ '%g'|format(analysis.step) }}% menor e {{ '%g'|format(analysis.step) }}% maior,
+          e a <b>faixa de validade</b>: até onde o item pode ir mantendo os mesmos alimentos na ração. Clique num item.</p>
+        <div class="sens-legend"><span><i class="swatch fall"></i>custo cai</span><span><i class="swatch rise"></i>custo sobe</span>
+          <span class="muted">E = elasticidade (% no custo por 1% no item)</span></div>
+        <div id="tornado"></div>
+        {% if analysis.no_effect %}<p class="muted sens-noeffect"><b>Sem efeito no custo</b> (têm folga ou não estão na ração):
+          {{ analysis.no_effect|join(', ') }}.</p>{% endif %}
+      </div>
+      <div class="sens-card">
+        <h3 id="curve-title"></h3>
+        <p class="muted" id="curve-sub"></p>
+        <svg id="curve" viewBox="0 0 560 260" role="img"></svg>
+        <h4>Ração em cada nível <span class="muted">(kg MS/dia; clique numa linha)</span></h4>
+        <div id="stack"></div>
+        <div id="feed-legend" class="sens-legend"></div>
+        <div id="detail" class="sens-detail"></div>
+      </div>
+    </div>
+    <details class="sens-table"><summary>Ver os números em tabela</summary><div class="table-scroll" id="sens-table"></div></details>
+    {% endif %}
+  </section>
+  <div id="sens-tip" class="sens-tip" hidden></div>
+  <script>const SENS = {{ analysis|tojson }};</script>
+  <script src="{{ url_for('static', filename='sensitivity.js') }}"></script>
   {% endif %}
 
   {% if result %}
@@ -240,6 +247,8 @@
       row.hidden = query !== "" && !row.dataset.search.toLowerCase().includes(query);
     });
   });
+  const runSens = document.getElementById("run-sensitivity");
+  if (runSens) runSens.addEventListener("click", () => { document.getElementById("sens-wait").hidden = false; });
   document.getElementById("uncheck-all").addEventListener("click", () => {
     document.querySelectorAll('input[name="selected_feeds"]').forEach((box) => { box.checked = false; });
   });

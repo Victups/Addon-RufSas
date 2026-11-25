@@ -118,19 +118,49 @@ def test_iofc_is_milk_revenue_minus_diet_cost():
     assert iofc == pytest.approx(30 * 0.5 - cost, abs=1e-3)
 
 
-def test_sensitivity_explains_the_new_decision():
-    html_page = post(action="sensitivity", sens_param="metabolizable_protein", sens_percent="15")
-    conclusions = [html.unescape(line) for line in re.findall(r"<li>(.*?)</li>", html_page)]
-    assert any(line.startswith("Custo da dieta") and "+" in line for line in conclusions)
-    assert any(line.startswith("Custo marginal") for line in conclusions)
-    assert any("Proteína metabolizável (mínimo)" in line for line in conclusions if line.startswith("Restrições"))
-    assert "Ração antes e depois" in html_page
-    assert "Varredura de" in html_page and html_page.count("<td>+") + html_page.count("<td>-") >= 6
-    assert any(line.startswith("Na faixa de -30% a +30%") for line in conclusions)
+def _spreadsheet_form():
+    content = (Path(__file__).parents[1] / "scenarios" / "precos" / "planilha-2026.json").read_bytes()
+    return web._imported_form(type("Upload", (), {"filename": "p.json", "stream": io.BytesIO(content)}))[0]
 
 
-def test_sensitivity_rejects_unknown_item():
-    assert "escolha o item a variar" in post(action="sensitivity", sens_param="nada", sens_percent="10")
+def test_sensitivity_ranks_every_input_and_draws_its_curve():
+    page = html.unescape(post(action="sensitivity", sens_percent="10"))
+    assert "O que mais pesa no custo" in page and "const SENS" in page and "sensitivity.js" in page
+    assert re.search(r"<li>O custo depende mais de: ", page)
+    analysis = web.sensitivity(web.MultiDict(web._default_form()) | {"sens_percent": "10"})
+    impacts = [max(abs(d) for d in (i["down"], i["up"]) if d is not None) for i in analysis["items"]]
+    assert impacts and impacts == sorted(impacts, reverse=True)
+    assert all([p["percent"] for p in i["curve"]] == web.CURVE_PERCENTS for i in analysis["items"])
+    assert "milk_price" not in {i["key"] for i in analysis["items"]}  # milk price changes the IOFC, not the diet cost
+
+
+def test_price_elasticity_is_the_feed_share_of_the_diet_cost():
+    analysis = web.sensitivity(_spreadsheet_form() | {"sens_percent": "10"})
+    silage = next(i for i in analysis["items"] if i["key"] == "cost_51")
+    share = next(r["cost"] for r in web.simulate(_spreadsheet_form())["ration"] if r["id"] == 51) / analysis["cost"]
+    assert silage["elasticity"] == pytest.approx(share, abs=0.01)
+    protein = next(i for i in analysis["items"] if i["key"] == "metabolizable_protein")
+    assert protein["breakpoints"] and any(p.get("change") for p in protein["curve"])  # feeds change in the range
+
+
+def test_validity_range_is_where_the_feeds_change():
+    form = _spreadsheet_form()
+    analysis = web.sensitivity(form | {"sens_percent": "10"})
+    protein = next(i for i in analysis["items"] if i["key"] == "metabolizable_protein")
+    up = protein["valid_up"]
+    assert 0 < up["same"] < up["change"] <= 10 and up["change"] - up["same"] <= 10 / 2 ** web.BISECTIONS + 1e-9
+    assert "sai Cottonseed" in up["what"]
+
+    def feeds(percent):
+        changed = web.MultiDict(form)
+        changed["metabolizable_protein"] = str(protein["value"] * (1 + percent / 100))
+        return {r["id"] for r in web.simulate(changed)["ration"] if r["amount"] >= web.NEGLIGIBLE}
+
+    assert feeds(up["same"]) == feeds(0) != feeds(up["change"])
+
+
+def test_sensitivity_rejects_a_non_positive_step():
+    assert "o passo da variação deve ser positivo" in post(action="sensitivity", sens_percent="0")
 
 
 def test_pulp_model_in_the_page_reports_shadow_prices():

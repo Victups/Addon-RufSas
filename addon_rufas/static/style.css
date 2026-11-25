@@ -39,3 +39,44 @@ pre code { color: #d7f0dd; }
 @media (max-width: 650px) { .hero, .result-top { align-items: flex-start; flex-direction: column; } .metric { text-align: left; } }
 @media (max-width: 650px) { .section-heading { flex-direction: column; } .search { max-width: none; width: 100%; } }
 .table-scroll { overflow-x: auto; } tr.current td { background: #203d2c; font-weight: 700; }
+/* Sensitivity panel */
+.sens-run { align-items: center; display: flex; flex-wrap: wrap; gap: 14px 22px; }
+.sens-run button { margin: 0; }
+.sens-step { align-items: center; color: #a7b9ad; display: flex; gap: 8px; } .sens-step input { width: 70px; }
+.sens h2 .muted { font-size: .95rem; font-weight: 400; }
+.sens-summary { line-height: 1.6; margin: 0 0 18px; padding-left: 20px; }
+.sens-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); }
+@media (max-width: 980px) { .sens-grid { grid-template-columns: 1fr; } }
+.sens-card { background: #131c18; border: 1px solid #30483a; border-radius: 12px; min-width: 0; padding: 16px; }
+.sens-card h3 { margin-bottom: 4px; } .sens-card h4 { margin: 16px 0 8px; }
+.sens-legend { color: #e4eee7; display: flex; flex-wrap: wrap; font-size: .85rem; gap: 6px 16px; margin: 10px 0; }
+.sens-legend span { align-items: center; display: inline-flex; gap: 6px; }
+.swatch { border-radius: 3px; display: inline-block; height: 11px; margin-right: 6px; vertical-align: -1px; width: 11px; }
+.swatch.fall { background: #3987e5; } .swatch.rise { background: #e66767; }
+.tor-row { align-items: center; background: transparent; border-radius: 8px; color: #e4eee7; display: grid; font-weight: 400;
+  gap: 3px 8px; grid-template-columns: 64px 1fr 1fr 64px 58px; margin: 0; padding: 7px 8px; text-align: left; width: 100%; }
+.tor-label { grid-column: 1 / -1; } .tor-current { color: #a7b9ad; font-size: .78rem; grid-column: 1 / -1; grid-row: 3; }
+.tor-row:hover { background: #1d2c25; } .tor-row.active { background: #203d2c; box-shadow: inset 0 0 0 1px #3eaa64; }
+.tor-label { font-size: .92rem; }
+.tor-val { color: #a7b9ad; font-size: .8rem; text-align: right; } .tor-row .tor-val:nth-of-type(6) { text-align: left; }
+.tor-half { display: flex; height: 14px; } .tor-half.left { justify-content: flex-end; } .tor-half.right { border-left: 1px solid #a7b9ad; }
+.tor-half i { border-radius: 4px; display: block; height: 100%; }
+.tor-half.left i { border-bottom-right-radius: 0; border-top-right-radius: 0; } .tor-half.right i { border-bottom-left-radius: 0; border-top-left-radius: 0; }
+.tor-e { color: #a7b9ad; font-size: .8rem; text-align: right; }
+#curve { display: block; height: auto; width: 100%; }
+.stack-row { align-items: center; background: transparent; border-radius: 6px; color: #e4eee7; display: grid; font-weight: 400;
+  gap: 10px; grid-template-columns: 92px minmax(0, 1fr) 62px 44px; margin: 0; padding: 4px 6px; text-align: left; width: 100%; }
+.stack-row:hover { background: #1d2c25; } .stack-row.active { background: #203d2c; box-shadow: inset 0 0 0 1px #3eaa64; }
+.stack-row.now .stack-level { font-weight: 700; }
+.stack-level, .stack-total, .stack-change { color: #a7b9ad; font-size: .8rem; } .stack-change { color: #e4eee7; }
+.stack-bar { display: flex; gap: 2px; height: 16px; } .stack-bar i { display: block; height: 100%; }
+.stack-bar i:first-child { border-radius: 4px 0 0 4px; } .stack-bar i:last-child { border-radius: 0 4px 4px 0; } .stack-bar i:only-child { border-radius: 4px; }
+.sens-detail { border-top: 1px solid #30483a; margin-top: 14px; padding-top: 4px; }
+.sens-metrics { display: grid; gap: 10px; grid-template-columns: repeat(3, 1fr); margin: 8px 0 12px; }
+.sens-metrics div { background: #18231e; border-radius: 8px; display: flex; flex-direction: column; padding: 10px; }
+.sens-metrics span { color: #a7b9ad; font-size: .78rem; } .sens-metrics strong { font-size: 1.15rem; } .sens-metrics em { color: #a7b9ad; font-size: .8rem; font-style: normal; }
+.sens-table { margin-top: 16px; }
+.sens-detail table, .sens-table table { font-size: .85rem; min-width: 0; } .sens-detail td, .sens-detail th { padding: 6px 5px; }
+.sens-noeffect { border-top: 1px solid #30483a; margin-top: 12px; padding-top: 10px; }
+.sens-tip { background: #0c120f; border: 1px solid #30483a; border-radius: 8px; box-shadow: 0 6px 20px #00000060; color: #e4eee7;
+  font-size: .82rem; line-height: 1.45; max-width: 300px; padding: 8px 10px; pointer-events: none; position: fixed; z-index: 10; }

@@ -154,21 +154,29 @@ procura por nome, ID ou categoria.
 
 ### Análise de sensibilidade
 
-Escolha um item (qualquer exigência, o preço do leite, o preço de um alimento
-marcado ou um limite do modelo NRC) e uma variação em %, e clique em **Analisar sensibilidade**. Com o
-otimizador escolhido, a página mostra:
+Clique em **Rodar análise de sensibilidade**. Com o otimizador escolhido, a página varia **cada item que o
+otimizador usa** (cada exigência e o preço de cada alimento marcado), um de cada vez, e mostra:
 
-- uma **varredura** do item de −30% a +30% (passos de 10%, mais a variação escolhida): cada linha é uma formulação
-  completa, com custo, IOFC e kg de cada alimento, e a coluna **Mudança** marca o ponto em que a ração troca de
-  alimentos. Exemplo com a planilha e o simplex, variando a proteína metabolizável: o farelo de soja entra a partir
-  de −20% e o caroço de algodão sai a partir de +10%; o custo vai de R$ 15,78 a R$ 24,67;
-- a ração antes e depois da variação escolhida, alimento por alimento, com a diferença em kg MS;
-- o custo e o IOFC antes e depois, e o **custo marginal** (variação do custo por
-  unidade do item variado);
-- conclusões em texto: o que entrou, saiu, aumentou ou diminuiu, e quais
-  restrições ficaram **no limite** (margem menor que 0,05% do tamanho da
-  restrição). São essas restrições que definem o custo. Se a ração não muda, o
-  item não limita a decisão naquela faixa.
+- **O que mais pesa no custo:** um gráfico tornado com a mudança do custo quando o item fica 10% menor (barra à
+  esquerda) e 10% maior (à direita), em azul quando o custo cai e em vermelho quando sobe, ordenado do item que mais
+  pesa para o que menos pesa. Ao lado, a **elasticidade** (% de mudança no custo para cada 1% de mudança no item).
+  No preço de um alimento, a elasticidade é a fatia dele no custo da dieta. Os itens sem efeito (com folga ou fora
+  da ração) ficam listados embaixo. O passo de 10% pode ser alterado.
+- **Faixa de validade de cada item:** até onde o item pode cair ou subir mantendo **os mesmos alimentos** na ração,
+  e o que muda fora dela. É o "aumento e redução permitidos" do relatório de sensibilidade de programação linear
+  (Solver), calculado também para o NASEM não linear: a página acha o primeiro nível em que os alimentos mudam e
+  refina o ponto por bissecção (6 metades, precisão de cerca de 0,16%).
+- **A curva do item clicado:** o custo de −30% a +30%, com a faixa de validade sombreada e os pontos exatos em que a
+  ração **troca de alimentos**.
+- **A ração em cada nível:** barras empilhadas com os kg de cada alimento; clicar num nível mostra custo, IOFC e a
+  diferença de cada alimento em relação à ração atual.
+- **Conclusões em texto:** os itens que mais pesam, os que trocam alimentos na faixa e as restrições no limite.
+
+Exemplo com a planilha e o simplex: proteína metabolizável (elasticidade 0,80), preço da silagem de milho (0,55) e
+preço do farelo de soja (0,38) são os que mais pesam. A proteína mantém os mesmos alimentos de −27,8% a +6,1%:
+acima disso sai o caroço de algodão, abaixo sai o farelo de soja. O cálcio vale até +10,9%, quando entra a casca de
+soja. A análise leva cerca de 6 s com o simplex e 13 s com o SLSQP, porque formula a dieta mais de cem vezes. No
+SLSQP aparecem trocas falsas (quantidades mínimas de sal), efeito do ponto inicial sorteado.
 
 Para essa análise, prefira o simplex ou o modelo NRC. Isso não significa que o
 SLSQP faça uma “conta errada”: o custo e as restrições continuam sendo

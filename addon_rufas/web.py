@@ -548,129 +548,159 @@ def _sensitivity_options(form: Mapping[str, str]) -> dict[str, tuple[str, str]]:
     return options
 
 
+# Requirements that do not enter the optimization (milk price changes only the IOFC).
+NOT_IN_COST = {"milk_price"}
+# Levels of each item's curve, in % of its current value.
+CURVE_PERCENTS = [-30.0, -20.0, -10.0, 0.0, 10.0, 20.0, 30.0]
+# Halvings used to locate where the feeds change: 10% / 2**6 ~ 0.16% precision.
+BISECTIONS = 6
+
+
+def _feeds_in(point: dict[str, Any]) -> frozenset[str] | None:
+    """The feeds of a solved level (None when infeasible): "same ration" means the same feeds, as the same LP basis."""
+    return frozenset(point["amounts"]) if point["feasible"] else None
+
+
+def _validity(curve: list[dict[str, Any]], solve: Any, direction: int) -> dict[str, Any]:
+    """
+    How far the input can move in one direction (+1 up, -1 down) keeping the feeds of the current ration: the
+    "allowable increase/decrease" of an LP sensitivity report. The curve gives the first level where the feeds change;
+    bisection between it and the last unchanged level locates the change within ~0.16%.
+    """
+    current = _feeds_in(next(p for p in curve if p["percent"] == 0.0))
+    side = sorted((p for p in curve if p["percent"] * direction > 0), key=lambda p: abs(p["percent"]))
+    same, other = 0.0, None
+    for point in side:
+        if _feeds_in(point) != current:
+            other = point
+            break
+        same = point["percent"]
+    if other is None:
+        return {"same": same, "change": None, "what": ""}
+    lo, hi, found = same, other["percent"], other
+    for _ in range(BISECTIONS):
+        mid = (lo + hi) / 2
+        point = solve(mid)
+        if _feeds_in(point) == current:
+            lo = mid
+        else:
+            hi, found = mid, point
+    if not found["feasible"]:
+        what = "a ração fica inviável"
+    else:
+        now, then = current, _feeds_in(found)
+        what = ", ".join([f"sai {FEED_NAMES.get(int(i), i)}" for i in sorted(now - then, key=int)]
+                         + [f"entra {FEED_NAMES.get(int(i), i)}" for i in sorted(then - now, key=int)])
+    return {"same": lo, "change": hi, "what": what}
+
+
+def _point(result: dict[str, Any], percent: float, value: float) -> dict[str, Any]:
+    """One solved level of a curve: cost, IOFC and the ration (kg MS per feed id)."""
+    feasible = bool(result["solution"].success)
+    return {
+        "percent": percent,
+        "value": value,
+        "feasible": feasible,
+        "cost": float(result["solution"].fun) if feasible else None,
+        "iofc": float(result["iofc"]) if feasible else None,
+        "amounts": {str(item["id"]): item["amount"] for item in result["ration"] if item["amount"] >= NEGLIGIBLE}
+        if feasible else {},
+    }
+
+
 def sensitivity(form: Mapping[str, str]) -> dict[str, Any]:
-    """Solves the scenario, changes one input by a percentage, solves again and explains what changed."""
-    options = _sensitivity_options(form)
-    key = form.get("sens_param", "")
-    if key not in options:
-        raise ValueError("escolha o item a variar")
-    label, unit = options[key]
-    percent = _float(form, "sens_percent")
-    old_value = _float(form, key)
-    new_value = old_value * (1 + percent / 100)
-    changed = MultiDict(form)
-    changed[key] = str(new_value)
-    before, after = simulate(form), simulate(changed)
+    """
+    Sensitivity of the diet cost to every input the chosen optimizer uses (each requirement and the price of each
+    selected feed), varied one at a time. Returns the ranking by elasticity (% cost change per 1% input change) and,
+    for each input that moves the cost, its curve from -30% to +30% with the points where the feeds change.
+    """
+    step = _float(form, "sens_percent") if form.get("sens_percent", "") != "" else 10.0
+    if step <= 0:
+        raise ValueError("o passo da variação deve ser positivo")
+    base = simulate(form)
+    if not base["solution"].success:
+        raise ValueError("a ração atual é inviável; ajuste o cenário antes de analisar a sensibilidade")
+    cost = float(base["solution"].fun)
+    nrc_keys = {key for key, _, _ in NRC_FIELDS}
+    uses_nrc = form.get("optimizer") == "pulp"
 
-    amounts_before = {item["id"]: item["amount"] for item in before["ration"]}
-    amounts_after = {item["id"]: item["amount"] for item in after["ration"]}
-    rows = [
-        {
-            "id": feed_id,
-            "name": FEED_NAMES.get(feed_id, f"Feed {feed_id}"),
-            "before": amounts_before.get(feed_id, 0.0),
-            "after": amounts_after.get(feed_id, 0.0),
-            "delta": amounts_after.get(feed_id, 0.0) - amounts_before.get(feed_id, 0.0),
-        }
-        for feed_id in sorted(set(amounts_before) | set(amounts_after))
-    ]
-    rows.sort(key=lambda row: -abs(row["delta"]))
-    cost_before, cost_after = float(before["solution"].fun), float(after["solution"].fun)
-    cost_delta = cost_after - cost_before
-    binding = [
-        row["name"] for row in after["constraints"] if abs(row["slack"]) <= BINDING_TOLERANCE * row["scale"]
-    ]
+    items, no_effect = [], []
+    for key, (label, unit) in _sensitivity_options(form).items():
+        if key in NOT_IN_COST or (key in nrc_keys and not uses_nrc):
+            continue
+        value = _float(form, key)
+        if not value:
+            continue
+        levels = sorted({*CURVE_PERCENTS, -step, step})
 
-    conclusions = [f"{label}: {old_value:.4g} → {new_value:.4g} {unit} ({percent:+.4g}%)."]
-    if not (before["solution"].success and after["solution"].success):
-        which = "a original" if not before["solution"].success else "a nova"
-        conclusions.append(f"A comparação não é válida: {which} formulação ficou inviável.")
-    else:
-        relative = f" ({100 * cost_delta / cost_before:+.2f}%)" if cost_before else ""
-        conclusions.append(
-            f"Custo da dieta: {cost_before:.4f} → {cost_after:.4f} por vaca/dia, {cost_delta:+.4f}{relative}."
-        )
-        if new_value != old_value and abs(cost_delta) >= 1e-6:
-            conclusions.append(
-                f"Custo marginal: {cost_delta / (new_value - old_value):+.4g} de custo por unidade a mais de "
-                f"{label.lower()} ({unit})."
-            )
-        conclusions.append(
-            f"IOFC: {before['iofc']:.4f} → {after['iofc']:.4f}, {after['iofc'] - before['iofc']:+.4f} por vaca/dia."
-        )
-        moved = [row for row in rows if abs(row["delta"]) >= NEGLIGIBLE]
-        if not moved:
-            conclusions.append("A ração não mudou: nessa faixa, o item não altera a decisão.")
-        for verb, chosen in (
-            ("Entraram na ração", [r for r in moved if r["before"] < NEGLIGIBLE]),
-            ("Saíram da ração", [r for r in moved if r["after"] < NEGLIGIBLE]),
-            ("Aumentaram", [r for r in moved if r["delta"] > 0 and r["before"] >= NEGLIGIBLE]),
-            ("Diminuíram", [r for r in moved if r["delta"] < 0 and r["after"] >= NEGLIGIBLE]),
-        ):
-            if chosen:
-                listed = "; ".join(f"{r['name']} ({r['delta']:+.3f} kg MS)" for r in chosen)
-                conclusions.append(f"{verb}: {listed}.")
-        if binding:
-            conclusions.append(
-                "Restrições no limite na nova solução (são elas que definem o custo): " + ", ".join(binding) + "."
-            )
-    sweep = _sensitivity_sweep(form, key, old_value, percent, before, after)
-    if sweep["changes"]:
-        conclusions.append(
-            f"Na faixa de {SWEEP_PERCENTS[0]:+g}% a {SWEEP_PERCENTS[-1]:+g}%, a composição da ração muda em: "
-            + "; ".join(sweep["changes"]) + "."
-        )
-    else:
-        conclusions.append(
-            f"Na faixa de {SWEEP_PERCENTS[0]:+g}% a {SWEEP_PERCENTS[-1]:+g}%, os alimentos da ração são sempre os mesmos;"
-            " só as quantidades e o custo mudam."
-        )
-    return {"label": label, "unit": unit, "rows": rows, "conclusions": conclusions, "before": before, "after": after,
-            "sweep": sweep}
-
-
-# Levels of the sensitivity sweep, in % of the current value.
-SWEEP_PERCENTS = [-30.0, -20.0, -10.0, 0.0, 10.0, 20.0, 30.0]
-
-
-def _sensitivity_sweep(form: Mapping[str, str], key: str, old_value: float, percent: float,
-                       before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
-    """Solves the scenario at each level of SWEEP_PERCENTS (and the chosen one) and marks where the feeds in the
-    ration change: the breakpoints of the decision, which one before/after comparison cannot show."""
-    solved = {0.0: before, percent: after}
-    for level in SWEEP_PERCENTS:
-        if level not in solved:
+        def solve(percent: float) -> dict[str, Any]:
+            if percent == 0.0:
+                return _point(base, 0.0, value)
             changed = MultiDict(form)
-            changed[key] = str(old_value * (1 + level / 100))
-            solved[level] = simulate(changed)
-    levels = sorted(solved)
-    amounts = {level: {item["id"]: item["amount"] for item in solved[level]["ration"] if item["amount"] >= NEGLIGIBLE}
-               for level in levels}
-    feed_ids = sorted({feed_id for level in levels for feed_id in amounts[level]})
-    rows, changes, previous = [], [], None
-    for level in levels:
-        result = solved[level]
-        feasible = bool(result["solution"].success)
-        present = set(amounts[level]) if feasible else None
-        note = ""
-        if previous is not None and present is not None and present != previous:
-            parts = [f"entra {FEED_NAMES.get(i, i)}" for i in sorted(present - previous)]
-            parts += [f"sai {FEED_NAMES.get(i, i)}" for i in sorted(previous - present)]
-            note = ", ".join(parts)
-            changes.append(f"{level:+g}% ({note})")
-        if present is not None:
-            previous = present
-        rows.append({
-            "percent": level,
-            "value": old_value * (1 + level / 100),
-            "feasible": feasible,
-            "cost": float(result["solution"].fun),
-            "iofc": float(result["iofc"]),
-            "amounts": [amounts[level].get(feed_id, 0.0) for feed_id in feed_ids],
-            "note": note if feasible else "inviável",
-            "current": level == 0.0,
-        })
-    return {"feeds": [FEED_NAMES.get(i, f"Feed {i}") for i in feed_ids], "rows": rows, "changes": changes}
+            changed[key] = str(value * (1 + percent / 100))
+            return _point(simulate(changed), percent, value * (1 + percent / 100))
+
+        down, up = solve(-step), solve(step)
+        deltas = [None if p["cost"] is None else 100 * (p["cost"] - cost) / cost for p in (down, up)]
+        if all(d is not None and abs(d) < 0.01 for d in deltas):
+            no_effect.append(label)
+            continue
+        curve = [down if p == -step else up if p == step else solve(p) for p in levels]
+        breakpoints, previous = [], None
+        for point in curve:
+            present = set(point["amounts"]) if point["feasible"] else None
+            if previous is not None and present is not None and present != previous:
+                point["change"] = ", ".join(
+                    [f"entra {FEED_NAMES.get(int(i), i)}" for i in sorted(present - previous, key=int)]
+                    + [f"sai {FEED_NAMES.get(int(i), i)}" for i in sorted(previous - present, key=int)]
+                )
+                breakpoints.append(point["percent"])
+            if present is not None:
+                previous = present
+        upward, downward = _validity(curve, solve, 1), _validity(curve, solve, -1)
+        valid = [d for d in deltas if d is not None]
+        elasticity = (deltas[1] - deltas[0]) / (2 * step) if None not in deltas else valid[0] / step
+        marginal = ((up["cost"] - down["cost"]) / (up["value"] - down["value"])
+                    if up["feasible"] and down["feasible"] else None)
+        items.append({"key": key, "label": label, "unit": unit, "value": value, "down": deltas[0], "up": deltas[1],
+                      "elasticity": elasticity, "marginal": marginal, "curve": curve, "breakpoints": breakpoints,
+                      "valid_up": upward, "valid_down": downward})
+    items.sort(key=lambda item: -max(abs(d) for d in (item["down"], item["up"]) if d is not None))
+
+    feed_ids = sorted({int(i) for item in items for p in item["curve"] for i in p["amounts"]} |
+                      {item["id"] for item in base["ration"] if item["amount"] >= NEGLIGIBLE})
+    binding = [row["name"] for row in base["constraints"] if abs(row["slack"]) <= BINDING_TOLERANCE * row["scale"]]
+    summary = []
+    if items:
+        summary.append("O custo depende mais de: " + "; ".join(
+            f"{item['label']} (elasticidade {item['elasticity']:+.2f})" for item in items[:3]) + ".")
+        top = items[0]
+        summary.append(f"Cada 1% a mais de {top['label'].lower()} muda o custo da dieta em {top['elasticity']:+.2f}%.")
+        moving = [item for item in items if item["valid_up"]["change"] is not None or item["valid_down"]["change"] is not None]
+        if moving:
+            def edge(v: dict[str, Any], sign: str) -> str:
+                if v["change"] is None:
+                    return f"além de {sign}30%"
+                return ("+" if v["same"] > 0 else "−" if v["same"] < 0 else "") + f"{abs(v['same']):.1f}%".replace(".", ",")
+            summary.append("Faixa de validade (a ração mantém os mesmos alimentos): " + "; ".join(
+                f"{item['label']} de {edge(item['valid_down'], '−')} a {edge(item['valid_up'], '+')}" for item in moving) + ".")
+    if binding:
+        summary.append("Restrições no limite na ração atual (são elas que definem o custo): " + ", ".join(binding) + ".")
+    selected = form.get("sens_param", "")
+    if selected not in {item["key"] for item in items}:
+        selected = items[0]["key"] if items else ""
+    largest = max((abs(d) for item in items for d in (item["down"], item["up"]) if d is not None), default=1.0)
+    return {
+        "step": step,
+        "cost": cost,
+        "items": items,
+        "no_effect": no_effect,
+        "summary": summary,
+        "selected": selected,
+        "largest": largest or 1.0,
+        "feeds": [{"id": str(i), "name": FEED_NAMES.get(i, f"Feed {i}")} for i in feed_ids],
+        "optimizer_label": base["optimizer_label"],
+    }
 
 
 def _scenario(form: Mapping[str, str]) -> dict[str, Any]:
@@ -837,7 +867,6 @@ def index():
             form["body_weight"] = form["cow_body_weight"]
         elif action == "sensitivity":
             analysis = sensitivity(form)
-            result = analysis["after"]
         elif request.method == "POST":
             result = simulate(form)
     except (KeyError, TypeError, ValueError) as exc:
@@ -855,7 +884,6 @@ def index():
         analysis=analysis,
         requirement_fields=REQUIREMENT_FIELDS,
         nrc_fields=NRC_FIELDS,
-        sensitivity_options=_sensitivity_options(form),
         error=error,
         notice=notice,
     )
