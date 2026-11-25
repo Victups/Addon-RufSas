@@ -38,3 +38,4 @@ pre code { color: #d7f0dd; }
 .readme hr { border: 0; border-top: 1px solid #30483a; margin: 24px 0; }
 @media (max-width: 650px) { .hero, .result-top { align-items: flex-start; flex-direction: column; } .metric { text-align: left; } }
 @media (max-width: 650px) { .section-heading { flex-direction: column; } .search { max-width: none; width: 100%; } }
+.table-scroll { overflow-x: auto; } tr.current td { background: #203d2c; font-weight: 700; }

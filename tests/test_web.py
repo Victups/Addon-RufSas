@@ -125,6 +125,8 @@ def test_sensitivity_explains_the_new_decision():
     assert any(line.startswith("Custo marginal") for line in conclusions)
     assert any("Proteína metabolizável (mínimo)" in line for line in conclusions if line.startswith("Restrições"))
     assert "Ração antes e depois" in html_page
+    assert "Varredura de" in html_page and html_page.count("<td>+") + html_page.count("<td>-") >= 6
+    assert any(line.startswith("Na faixa de -30% a +30%") for line in conclusions)
 
 
 def test_sensitivity_rejects_unknown_item():

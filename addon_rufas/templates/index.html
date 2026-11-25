@@ -152,12 +152,10 @@
 
     <details class="panel" open>
       <summary>Análise de sensibilidade</summary>
-      <p class="muted">Varia um item e formula de novo, com o otimizador escolhido acima: mostra quais alimentos entraram, saíram,
-        aumentaram ou diminuíram, o impacto no custo e no IOFC, o custo marginal e as restrições que limitam a solução.
-        Prefira o simplex ou o modelo NRC. O SLSQP do RuFaS usa um ponto inicial
-        aleatório quando não há ração anterior; isso pode mudar sua trajetória
-        numérica. Diferenças entre simplex e SLSQP devem ser separadas de diferenças
-        reais do modelo NRC, que usa outra formulação.</p>
+      <p class="muted">Escolha um preço ou uma exigência. A página formula a ração com esse item de −30% a +30% e mostra
+        como o custo, o IOFC e os alimentos mudam, e em que ponto a ração troca de alimentos. A variação escolhida abaixo
+        é detalhada no antes e depois. Use o simplex ou o modelo NRC: o SLSQP começa de um ponto sorteado, e parte da
+        diferença pode ser só efeito do sorteio.</p>
       <div class="fields">
         <label>Item a variar
           <select name="sens_param">
@@ -179,7 +177,15 @@
     <summary>Sensibilidade · {{ analysis.label }}</summary>
     <h3>Conclusões</h3>
     <ul>{% for line in analysis.conclusions %}<li>{{ line }}</li>{% endfor %}</ul>
-    <h3>Ração antes e depois</h3>
+    <h3>Varredura de {{ analysis.label|lower }}</h3>
+    <p class="muted">Cada linha é uma formulação completa. "Mudança" marca onde a ração troca de alimentos.</p>
+    <div class="table-scroll"><table><thead><tr><th>Variação</th><th>Valor ({{ analysis.unit }})</th><th>Custo ($/dia)</th><th>IOFC ($/dia)</th>
+      {% for name in analysis.sweep.feeds %}<th>{{ name }} (kg MS)</th>{% endfor %}<th>Mudança</th></tr></thead>
+      <tbody>{% for r in analysis.sweep.rows %}<tr{% if r.current %} class="current"{% endif %}><td>{{ '%+g'|format(r.percent) }}%</td><td>{{ '%.4g'|format(r.value) }}</td>
+        <td>{{ '%.4f'|format(r.cost) if r.feasible else '—' }}</td><td>{{ '%.4f'|format(r.iofc) if r.feasible else '—' }}</td>
+        {% for amount in r.amounts %}<td>{{ '%.3f'|format(amount) if r.feasible else '—' }}</td>{% endfor %}<td>{{ r.note }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <h3>Ração antes e depois ({{ '%+g'|format(form.get('sens_percent', '10')|float) }}%)</h3>
     <table><thead><tr><th>ID</th><th>Alimento</th><th>Antes (kg MS)</th><th>Depois (kg MS)</th><th>Diferença (kg MS)</th></tr></thead>
       <tbody>{% for row in analysis.rows %}<tr><td>{{ row.id }}</td><td>{{ row.name }}</td><td>{{ '%.4f'|format(row.before) }}</td><td>{{ '%.4f'|format(row.after) }}</td><td>{{ '%+.4f'|format(row.delta) }}</td></tr>{% endfor %}</tbody>
     </table>

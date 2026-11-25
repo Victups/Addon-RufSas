@@ -614,7 +614,63 @@ def sensitivity(form: Mapping[str, str]) -> dict[str, Any]:
             conclusions.append(
                 "Restrições no limite na nova solução (são elas que definem o custo): " + ", ".join(binding) + "."
             )
-    return {"label": label, "rows": rows, "conclusions": conclusions, "before": before, "after": after}
+    sweep = _sensitivity_sweep(form, key, old_value, percent, before, after)
+    if sweep["changes"]:
+        conclusions.append(
+            f"Na faixa de {SWEEP_PERCENTS[0]:+g}% a {SWEEP_PERCENTS[-1]:+g}%, a composição da ração muda em: "
+            + "; ".join(sweep["changes"]) + "."
+        )
+    else:
+        conclusions.append(
+            f"Na faixa de {SWEEP_PERCENTS[0]:+g}% a {SWEEP_PERCENTS[-1]:+g}%, os alimentos da ração são sempre os mesmos;"
+            " só as quantidades e o custo mudam."
+        )
+    return {"label": label, "unit": unit, "rows": rows, "conclusions": conclusions, "before": before, "after": after,
+            "sweep": sweep}
+
+
+# Levels of the sensitivity sweep, in % of the current value.
+SWEEP_PERCENTS = [-30.0, -20.0, -10.0, 0.0, 10.0, 20.0, 30.0]
+
+
+def _sensitivity_sweep(form: Mapping[str, str], key: str, old_value: float, percent: float,
+                       before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
+    """Solves the scenario at each level of SWEEP_PERCENTS (and the chosen one) and marks where the feeds in the
+    ration change: the breakpoints of the decision, which one before/after comparison cannot show."""
+    solved = {0.0: before, percent: after}
+    for level in SWEEP_PERCENTS:
+        if level not in solved:
+            changed = MultiDict(form)
+            changed[key] = str(old_value * (1 + level / 100))
+            solved[level] = simulate(changed)
+    levels = sorted(solved)
+    amounts = {level: {item["id"]: item["amount"] for item in solved[level]["ration"] if item["amount"] >= NEGLIGIBLE}
+               for level in levels}
+    feed_ids = sorted({feed_id for level in levels for feed_id in amounts[level]})
+    rows, changes, previous = [], [], None
+    for level in levels:
+        result = solved[level]
+        feasible = bool(result["solution"].success)
+        present = set(amounts[level]) if feasible else None
+        note = ""
+        if previous is not None and present is not None and present != previous:
+            parts = [f"entra {FEED_NAMES.get(i, i)}" for i in sorted(present - previous)]
+            parts += [f"sai {FEED_NAMES.get(i, i)}" for i in sorted(previous - present)]
+            note = ", ".join(parts)
+            changes.append(f"{level:+g}% ({note})")
+        if present is not None:
+            previous = present
+        rows.append({
+            "percent": level,
+            "value": old_value * (1 + level / 100),
+            "feasible": feasible,
+            "cost": float(result["solution"].fun),
+            "iofc": float(result["iofc"]),
+            "amounts": [amounts[level].get(feed_id, 0.0) for feed_id in feed_ids],
+            "note": note if feasible else "inviável",
+            "current": level == 0.0,
+        })
+    return {"feeds": [FEED_NAMES.get(i, f"Feed {i}") for i in feed_ids], "rows": rows, "changes": changes}
 
 
 def _scenario(form: Mapping[str, str]) -> dict[str, Any]:

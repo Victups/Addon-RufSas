@@ -155,10 +155,14 @@ procura por nome, ID ou categoria.
 ### Análise de sensibilidade
 
 Escolha um item (qualquer exigência, o preço do leite, o preço de um alimento
-marcado ou um limite do modelo NRC) e uma variação em %, e clique em **Analisar sensibilidade**. A página
-formula duas vezes com o otimizador escolhido, antes e depois da mudança, e mostra:
+marcado ou um limite do modelo NRC) e uma variação em %, e clique em **Analisar sensibilidade**. Com o
+otimizador escolhido, a página mostra:
 
-- a ração antes e depois, alimento por alimento, com a diferença em kg MS;
+- uma **varredura** do item de −30% a +30% (passos de 10%, mais a variação escolhida): cada linha é uma formulação
+  completa, com custo, IOFC e kg de cada alimento, e a coluna **Mudança** marca o ponto em que a ração troca de
+  alimentos. Exemplo com a planilha e o simplex, variando a proteína metabolizável: o farelo de soja entra a partir
+  de −20% e o caroço de algodão sai a partir de +10%; o custo vai de R$ 15,78 a R$ 24,67;
+- a ração antes e depois da variação escolhida, alimento por alimento, com a diferença em kg MS;
 - o custo e o IOFC antes e depois, e o **custo marginal** (variação do custo por
   unidade do item variado);
 - conclusões em texto: o que entrou, saiu, aumentou ou diminuiu, e quais
